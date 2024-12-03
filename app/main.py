@@ -1,8 +1,9 @@
 from typing import Dict, Union, Optional
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Query, WebSocket
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI, HTTPException, Query, WebSocket
 
 from app.config import settings
 from app.services.exchange_service import ExchangeService
@@ -53,6 +54,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 @app.get(f"{settings.API_PREFIX}/initialize")
 async def initialize_exchanges() -> Dict[str, str]:
