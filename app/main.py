@@ -1,15 +1,18 @@
 from typing import Dict, Union, Optional
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.services.exchange_service import ExchangeService
+from app.services.websocket_service import WebSocketService
 
 service = ExchangeService()
 service.price_cache_ttl = 30
 service.trade_cache_ttl = 600
+
+ws_service = WebSocketService()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -33,6 +36,8 @@ async def lifespan(app: FastAPI):
             print(f"Closed connection to {exchange_name}")
         except Exception as e:
             print(f"Error closing {exchange_name} connection: {str(e)}")
+
+    await ws_service.stop()
 
 app = FastAPI(
     title="Crypto Asset Manager",
@@ -104,6 +109,84 @@ async def get_assets(
             status_code=500,
             detail=f"Failed to fetch assets: {str(e)}"
         )
+    
+@app.get(f"{settings.API_PREFIX}/ping_ws")
+async def ping_websocket() -> Dict[str, str]:
+    """
+    Check if WebSocket service is running.
+    """
+    try:
+        if ws_service.is_running:
+            return {
+                "status": "success",
+                "message": "WebSocket service is running"
+            }
+        else:
+            return {
+                "status": "inactive",
+                "message": "WebSocket service is not running"
+            }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error checking WebSocket status: {str(e)}"
+        )
+
+@app.post(f"{settings.API_PREFIX}/connect_ws")
+async def connect_websocket() -> Dict[str, str]:
+    """
+    Initialize and start WebSocket service.
+    """
+    try:
+        if not ws_service.is_running:
+            await ws_service.initialize()
+            await ws_service.start_watching()
+            return {
+                "status": "success",
+                "message": "WebSocket service started successfully"
+            }
+        return {
+            "status": "success",
+            "message": "WebSocket service is already running"
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to start WebSocket service: {str(e)}"
+        )
+    
+@app.post(f"{settings.API_PREFIX}/disconnect_ws")
+async def disconnect_websocket() -> Dict[str, str]:
+    """
+    Stop WebSocket service and disconnect all clients.
+    """
+    try:
+        if ws_service.is_running:
+            await ws_service.stop()
+            return {
+                "status": "success",
+                "message": "WebSocket service stopped successfully"
+            }
+        return {
+            "status": "success",
+            "message": "WebSocket service is already stopped"
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to stop WebSocket service: {str(e)}"
+        )
+
+@app.websocket("/ws/klines")
+async def websocket_endpoint(websocket: WebSocket):
+    """
+    WebSocket endpoint for kline data streaming
+    """
+    if not ws_service.is_running:
+        await websocket.close(code=1000, reason="WebSocket service is not running")
+        return
+        
+    await ws_service.register_client(websocket)
 
 # Error handlers
 @app.exception_handler(Exception)

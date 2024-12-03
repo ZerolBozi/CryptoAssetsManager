@@ -1,8 +1,8 @@
 import os
 import re
+import json
 
 import requests
-import pandas as pd
 
 def get_symbol_exchange_mapping():
     upbit = Upbit()
@@ -11,58 +11,54 @@ def get_symbol_exchange_mapping():
     mexc = MEXC()
     gate = Gate()
 
+    # 获取各交易所的symbols
     upbit_symbols = upbit.get_all_symbols()
     binance_symbols = binance.get_all_symbols()
     okx_symbols = okx.get_all_symbols()
     mexc_symbols = mexc.get_all_symbols()
     gate_symbols = gate.get_all_symbols()
 
-    mapping = {}
+    # 优先级排序的交易所映射
+    exchange_mapping = {
+        "Binance": binance_symbols,
+        "OKX": okx_symbols,
+        "MEXC": mexc_symbols,
+        "Gate.io": gate_symbols,
+        "Upbit": upbit_symbols
+    }
+
+    # 检查Upbit的币种在其他交易所的情况
+    final_mapping = {
+        "Binance": [],
+        "OKX": [],
+        "MEXC": [],
+        "Gate.io": [],
+        "Upbit": []
+    }
 
     for symbol in upbit_symbols:
-        mapping[symbol] = "Upbit"
+        # 按优先级检查各交易所
         if symbol in binance_symbols:
-            mapping[symbol] = "Binance"
-            continue
+            final_mapping["Binance"].append(symbol)
+        elif symbol in okx_symbols:
+            final_mapping["OKX"].append(symbol)
+        elif symbol in mexc_symbols:
+            final_mapping["MEXC"].append(symbol)
+        elif symbol in gate_symbols:
+            final_mapping["Gate.io"].append(symbol)
+        else:
+            final_mapping["Upbit"].append(symbol)
 
-        if symbol in okx_symbols:
-            mapping[symbol] = "OKX"
-            continue
-
-        if symbol in mexc_symbols:
-            mapping[symbol] = "MEXC"
-            continue
-
-        if symbol in gate_symbols:
-            mapping[symbol] = "Gate.io"
-
-    df = pd.DataFrame({
-        'symbol': mapping.keys(),
-        'exchange': mapping.values()
-    })
-
-    def get_sort_key(x):
-        if not x:
-            return 999
-        if "Binance" in x:
-            return 0
-        if "OKX" in x:
-            return 1
-        if "MEXC" in x:
-            return 2
-        if "Gate.io" in x:
-            return 3
-        return 998
-    
-    df['sort_key'] = df['exchange'].apply(get_sort_key)
-    df = df.sort_values('sort_key').drop('sort_key', axis=1)
-
+    # 保存为JSON文件
     current_dir = os.path.dirname(os.path.abspath(__file__))
     root_dir = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
     services_dir = os.path.join(root_dir, 'CryptoAssetsManager', 'app', 'services')
-    file_path = os.path.join(services_dir, "symbol_exchange_mapping.csv")
+    file_path = os.path.join(services_dir, "symbol_exchange_mapping.json")
 
-    df.to_csv(file_path, index=False)
+    with open(file_path, 'w') as f:
+        json.dump(final_mapping, f, indent=2)
+
+    return final_mapping
 
 class Upbit:
     def __init__(self):
