@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Dict, Union, Optional
 from contextlib import asynccontextmanager
 
@@ -7,11 +8,14 @@ from fastapi import FastAPI, HTTPException, Query, WebSocket
 
 from app.config import settings
 from app.services.exchange_service import ExchangeService
+from app.services.currency_service import CurrencyService
 from app.services.websocket_service import WebSocketService
 
 service = ExchangeService()
 service.price_cache_ttl = 30
 service.trade_cache_ttl = 600
+
+currency_service = CurrencyService()
 
 ws_service = WebSocketService()
 
@@ -112,6 +116,20 @@ async def get_assets(
             status_code=500,
             detail=f"Failed to fetch assets: {str(e)}"
         )
+    
+@app.get(f"{settings.API_PREFIX}/exchange_rate/usdt_twd")
+async def get_usdt_twd_rate():
+    """Get USDT to TWD exchange rate from MAX"""
+    rate = await currency_service.get_usdt_twd_rate()
+    if rate:
+        return {
+            "rate": rate,
+            "timestamp": datetime.now().isoformat()
+        }
+    raise HTTPException(
+        status_code=503, 
+        detail="Could not fetch exchange rate"
+    )
     
 @app.get(f"{settings.API_PREFIX}/ping_ws")
 async def ping_websocket() -> Dict[str, str]:
