@@ -4,7 +4,7 @@ import json
 
 import requests
 
-def get_symbol_exchange_mapping():
+def get_symbol_exchange_mapping() -> dict:
     upbit = Upbit()
     binance = Binance()
     okx = OKX()
