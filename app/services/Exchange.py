@@ -11,23 +11,12 @@ def get_symbol_exchange_mapping():
     mexc = MEXC()
     gate = Gate()
 
-    # 获取各交易所的symbols
     upbit_symbols = upbit.get_all_symbols()
     binance_symbols = binance.get_all_symbols()
     okx_symbols = okx.get_all_symbols()
     mexc_symbols = mexc.get_all_symbols()
     gate_symbols = gate.get_all_symbols()
 
-    # 优先级排序的交易所映射
-    exchange_mapping = {
-        "Binance": binance_symbols,
-        "OKX": okx_symbols,
-        "MEXC": mexc_symbols,
-        "Gate.io": gate_symbols,
-        "Upbit": upbit_symbols
-    }
-
-    # 检查Upbit的币种在其他交易所的情况
     final_mapping = {
         "Binance": [],
         "OKX": [],
@@ -37,7 +26,6 @@ def get_symbol_exchange_mapping():
     }
 
     for symbol in upbit_symbols:
-        # 按优先级检查各交易所
         if symbol in binance_symbols:
             final_mapping["Binance"].append(symbol)
         elif symbol in okx_symbols:
@@ -49,7 +37,6 @@ def get_symbol_exchange_mapping():
         else:
             final_mapping["Upbit"].append(symbol)
 
-    # 保存为JSON文件
     current_dir = os.path.dirname(os.path.abspath(__file__))
     root_dir = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
     services_dir = os.path.join(root_dir, 'CryptoAssetsManager', 'app', 'services')
