@@ -93,6 +93,12 @@ async def ping_exchanges() -> Dict[str, Union[Dict[str, Union[bool, str]], str]]
             status_code=500,
             detail=f"Failed to ping exchanges: {str(e)}"
         )
+    
+@app.get(f"{settings.API_PREFIX}/total_assets")
+async def get_total_assets():
+    # 統計總資產、總收益、總報酬率
+    # 設計一個limit參數，可以查看資產變化的歷史紀錄
+    pass
 
 @app.get(f"{settings.API_PREFIX}/assets")
 async def get_assets(
@@ -123,8 +129,11 @@ async def get_usdt_twd_rate():
     rate = await currency_service.get_usdt_twd_rate()
     if rate:
         return {
-            "rate": rate,
-            "timestamp": datetime.now().isoformat()
+            'status': 'success',
+            'data': {
+                'rate': rate,
+                'timestamp': datetime.now().isoformat()
+            }
         }
     raise HTTPException(
         status_code=503, 
