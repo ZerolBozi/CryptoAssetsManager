@@ -169,36 +169,6 @@ class Binance:
         
         return self.usdt_markets
     
-    def get_day_candles(self, symbol: str, limit: int = 200) -> list:
-        """
-        Get daily candles for a symbol
-        """
-        url = f"{self.base_url}/klines"
-        params = {
-            "symbol": symbol,
-            "interval": "1d",
-            "limit": limit
-        }
-        response = requests.get(url, params=params)
-        candles = response.json()
-        
-        return candles
-    
-    def get_week_candles(self, symbol: str, limit: int = 200) -> list:
-        """
-        Get weekly candles for a symbol
-        """
-        url = f"{self.base_url}/klines"
-        params = {
-            "symbol": symbol,
-            "interval": "1w",
-            "limit": limit
-        }
-        response = requests.get(url, params=params)
-        candles = response.json()
-        
-        return candles
-    
 class OKX:
     def __init__(self):
         self.base_url = "https://www.okx.com/api/v5"
@@ -227,26 +197,6 @@ class OKX:
         self.usdt_markets = _usdt_markets
         
         return self.usdt_markets
-    
-    def get_day_candles(self, symbol: str, limit: int = 200) -> list:
-        """
-        Get daily candles for a symbol
-        """
-        url = f"{self.base_url}/market/candles?instId={symbol}&bar=1Dutc&limit={limit}"
-        response = requests.get(url)
-        candles = response.json()
-        
-        return candles
-    
-    def get_week_candles(self, symbol: str, limit: int = 200) -> list:
-        """
-        Get weekly candles for a symbol
-        """
-        url = f"{self.base_url}/market/candles?instId={symbol}&bar=1Wutc&limit={limit}"
-        response = requests.get(url)
-        candles = response.json()
-        
-        return candles
     
 class MEXC:
     def __init__(self):
@@ -305,6 +255,3 @@ class Gate:
         self.usdt_markets = _usdt_markets
         
         return self.usdt_markets
-    
-if __name__ == "__main__":
-    get_symbol_exchange_mapping()

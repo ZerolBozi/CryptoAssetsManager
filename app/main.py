@@ -11,9 +11,10 @@ from app.services.exchange_service import ExchangeService
 from app.services.currency_service import CurrencyService
 from app.services.websocket_service import WebSocketService
 
-service = ExchangeService()
-service.price_cache_ttl = 30
-service.trade_cache_ttl = 600
+# 快取週期
+PRICE_CACHE_TTL = 60
+TRADE_CACHE_TTL = 600
+service = ExchangeService(PRICE_CACHE_TTL, TRADE_CACHE_TTL)
 
 currency_service = CurrencyService()
 
@@ -27,7 +28,7 @@ async def lifespan(app: FastAPI):
     """
     try:
         # Startup
-        await service.initialize_exchanges()
+        await service.initialize_exchanges_by_server()
         print("Exchanges initialized successfully")
     except Exception as e:
         print(f"Failed to initialize exchanges: {str(e)}")
@@ -61,6 +62,35 @@ app.add_middleware(
 
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
+@app.post(f"{settings.API_PREFIX}/update_exchange_settings")
+async def update_exchange_settings(apis: Dict[str, Dict[str, str]]) -> Dict[str, str]:
+    """
+    Set API keys and secrets for exchanges.
+    Parameters:
+        apis: Dict with exchange names as keys and API keys/secrets as values
+    
+    Returns:
+        Dict with status message
+    """
+    try:
+        await service.initialize_exchanges(apis)
+        results = await service.ping_exchanges()
+
+        failed_exchanges = [name for name, result in results.items() if not result]
+       
+        if failed_exchanges:
+            return {
+                "status": "error", 
+                "message": f"Failed to connect to exchanges: {', '.join(failed_exchanges)}"
+            }
+        
+        return {"status": "success", "message": "API keys set successfully"}
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to set API keys: {str(e)}"
+        )
+
 @app.get(f"{settings.API_PREFIX}/initialize")
 async def initialize_exchanges() -> Dict[str, str]:
     """
@@ -69,7 +99,7 @@ async def initialize_exchanges() -> Dict[str, str]:
         Dict with status message
     """
     try:
-        await service.initialize_exchanges()
+        await service.initialize_exchanges_by_server()
         return {"status": "success", "message": "Exchanges initialized successfully"}
     except Exception as e:
         raise HTTPException(
@@ -94,15 +124,15 @@ async def ping_exchanges() -> Dict[str, Union[Dict[str, Union[bool, str]], str]]
             detail=f"Failed to ping exchanges: {str(e)}"
         )
     
-@app.get(f"{settings.API_PREFIX}/total_assets")
-async def get_total_assets():
+@app.get(f"{settings.API_PREFIX}/assets_summary")
+async def get_assets_summary():
     # 統計總資產、總收益、總報酬率
     # 設計一個limit參數，可以查看資產變化的歷史紀錄
     pass
 
 @app.get(f"{settings.API_PREFIX}/assets")
 async def get_assets(
-        min_value_threshold: Optional[float] = Query(default=0.1, description="Minimum value threshold in USDT")
+        min_value: Optional[float] = Query(default=0.1, description="Minimum value threshold in USDT")
     ) -> Dict[str, Union[Dict, str]]:
     """
     Get all spot assets from all exchanges.
@@ -112,7 +142,7 @@ async def get_assets(
         Dict with assets data from all exchanges
     """
     try:
-        assets = await service.get_all_spot_assets(min_value_threshold=min_value_threshold)
+        assets = await service.get_spot_assets(min_value=min_value)
         return {
             "status": "success",
             "data": assets

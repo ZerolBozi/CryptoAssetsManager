@@ -20,3 +20,6 @@ __pycache__/
 Thumbs.db
 
 *.log
+
+TradeHistoryProcessor.py
+database_service.py

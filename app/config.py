@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     GATEIO_API_KEY: str
     GATEIO_SECRET: str
 
+    # DB Settings
+    MONGODB_URI: str = "mongodb://localhost:27017"
+    MONGODB_DB_NAME: str = "crypto_asset_manager"
+
     # API Version
     API_VERSION: str = "v1"
 
