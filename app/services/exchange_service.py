@@ -1,36 +1,15 @@
-import time
 import asyncio
 from decimal import Decimal
-from dataclasses import dataclass
 from typing import Dict, List, Optional, Union
 
 import ccxt.async_support as ccxt
 
 from app.config import settings
-
-@dataclass
-class CacheData:
-    data: Union[Decimal, Dict]
-    timestamp: float
-
-@dataclass
-class Balance:
-    free: Decimal
-    used: Decimal
-    total: Decimal
-    avg_price: Decimal
-    current_price: Decimal
-    roi: Decimal
-    value_in_usdt: Decimal
-    profit_usdt: Decimal
+from app.services.asset_structure import Balance, AssetsData
 
 class ExchangeService:
-    def __init__(self, price_cache_ttl: int = 60, trade_cache_ttl: int = 600) -> None:
+    def __init__(self) -> None:
         self.exchanges: Dict[str, ccxt.Exchange] = {}
-        self.price_cache: Dict[str, CacheData] = {}
-        self.trade_cache: Dict[str, CacheData] = {}
-        self.price_cache_ttl = price_cache_ttl
-        self.trade_cache_ttl = trade_cache_ttl
 
     async def initialize_exchanges(self, apis: dict) -> None:
         """
@@ -138,6 +117,70 @@ class ExchangeService:
             return {name: result for name, result in zip(self.exchanges.keys(), results)}
         except Exception as e:
             return None
+        
+    async def get_price_history(self, exchange: ccxt.Exchange, symbol: str, timeframe: str, since: int, end: int) -> Dict:
+        """
+        Get price history for a symbol from an exchange.
+
+        Args:
+            exchange: ccxt Exchange instance
+            symbol: Trading pair symbol (e.g. 'BTC/USDT')
+            timeframe: Timeframe (e.g. '1d')
+            since: Start timestamp (milliseconds)
+            end: End timestamp (milliseconds)
+
+        Returns:
+            Dict: Price history data (the data including end timestamp)
+        """
+        timeframe_map = {
+            '1m': 60000,
+            '5m': 300000,
+            '15m': 900000,
+            '30m': 1800000,
+            '1h': 3600000,
+            '4h': 14400000,
+            '1d': 86400000,
+            '1w': 604800000
+        }
+
+        try:
+            adjusted_end = end + timeframe_map[timeframe]
+            periods = (adjusted_end - since) // timeframe_map[timeframe]
+            chunks = [(periods // 1000) + (1 if periods % 1000 else 0)]  
+            result = []
+
+            for i in range(chunks[0]):
+                current_since = since + (i * 1000 * timeframe_map[timeframe])
+                limit = min(1000, periods - (i * 1000))
+                
+                ohlcv = await exchange.fetch_ohlcv(symbol, timeframe, current_since, limit=limit)
+                
+                if not ohlcv:
+                    break
+                    
+                result.extend([{
+                    "timestamp": candle[0],
+                    "open": candle[1],
+                    "high": candle[2],
+                    "low": candle[3],
+                    "close": candle[4],
+                    "volume": candle[5]
+                } for candle in ohlcv])
+
+            return {"data": result}
+            
+        except Exception as e:
+            return {"error": str(e)}
+        
+    async def __get_close_price_history(self, exchange: ccxt.Exchange, symbol: str, timeframe: str, since: int, end: int) -> Decimal:
+        try:
+            price_history = await self.get_price_history(exchange, symbol, timeframe, since, end)
+            if 'error' in price_history:
+                return Decimal(0)
+
+            return Decimal(price_history['data'][-1]['close'])
+        except Exception as e:
+            return Decimal(0)
     
     async def get_current_price(self, exchange: ccxt.Exchange, symbol: str) -> Decimal:
         """
@@ -150,19 +193,10 @@ class ExchangeService:
         Returns:
             Decimal: Current price
         """
-        try:
-            cache_key = f"{exchange.id}_{symbol}"
-            now = time.time()
-
-            if (cache_key in self.price_cache and 
-                now - self.price_cache[cache_key].timestamp < self.price_cache_ttl):
-                return self.price_cache[cache_key].data
-            
+        try:          
             ticker = await exchange.fetch_ticker(symbol)
             price = Decimal(ticker.get('last', Decimal(0)))
-            self.price_cache[cache_key] = CacheData(price, time.time())
             return price
-                
         except Exception as e:
             return Decimal(0)
 
@@ -177,14 +211,7 @@ class ExchangeService:
         Returns:
             List[Dict]: List of trade data
         """
-        try:
-            cache_key = f"{exchange.id}_{symbol}"
-            now = time.time()
-
-            if (cache_key in self.trade_cache and 
-                now - self.trade_cache[cache_key].timestamp < self.trade_cache_ttl):
-                return self.trade_cache[cache_key].data
-            
+        try:           
             if not exchange.has['fetchMyTrades']:
                 return []
             
@@ -198,7 +225,6 @@ class ExchangeService:
             if (not trades) and (symbol in symbol_alternatives):
                 trades = await exchange.fetch_my_trades(symbol_alternatives[symbol])
 
-            self.trade_cache[cache_key] = CacheData(trades, time.time())
             return trades
                 
         except Exception as e:
@@ -223,7 +249,7 @@ class ExchangeService:
         
         return balance
     
-    async def __process_symbol(self, exchange: ccxt.Exchange, symbol: str, balance: dict) -> Optional[Balance]:
+    async def __process_symbol(self, exchange: ccxt.Exchange, symbol: str, balance: dict, timestamp: int = None) -> Optional[Balance]:
         try:
             total_amount = Decimal(str(balance['total'][symbol]))
 
@@ -239,7 +265,7 @@ class ExchangeService:
                     current_price=Decimal('1'),
                     roi=Decimal('0'),
                     value_in_usdt=total_amount,
-                    profit_usdt=Decimal('0')
+                    profit_usdt=Decimal('0'),
                 )
             
             _symbol = f"{symbol}/USDT"
@@ -247,19 +273,32 @@ class ExchangeService:
             if not exchange.has['fetchTicker']:
                 return None
             
-            price_task = self.get_current_price(exchange, _symbol)
+            if timestamp is None:
+                price_task = self.get_current_price(exchange, _symbol)
+            else:
+                price_task = self.__get_close_price_history(exchange, _symbol, '1d', timestamp, timestamp)
+
             trades_task = self.get_trades(exchange, _symbol)
 
             current_price, trades = await asyncio.gather(price_task, trades_task)
 
-            if not current_price:
+            if (not current_price) or (not trades):
                 return None
             
             value_in_usdt: Decimal = total_amount * current_price
-                    
+            cost = Decimal('0')
+            amount = Decimal('0')
+            avg_price = Decimal('0')
+
             if trades:
-                cost = sum([Decimal(str(trade['cost'])) for trade in trades])
-                amount = sum([Decimal(str(trade['amount'])) for trade in trades])
+                for trade in trades:
+                    if trade['side'] == "buy":
+                        cost += Decimal(str(trade['cost']))
+                        amount += Decimal(str(trade['amount']))
+                    else:
+                        cost -= Decimal(str(trade['cost']))
+                        amount -= Decimal(str(trade['amount']))
+
                 avg_price = cost / amount if amount else current_price
             else:
                 avg_price = current_price
@@ -276,19 +315,20 @@ class ExchangeService:
                 current_price=current_price,
                 roi=roi,
                 value_in_usdt=value_in_usdt,
-                profit_usdt=profit_usdt
+                profit_usdt=profit_usdt,
             )
             
         except Exception as e:
             return None
     
-    async def get_spot_balance(self, exchange: ccxt.Exchange) -> Dict[str, Union[Balance, str]]:
+    async def get_spot_balance(self, exchange: ccxt.Exchange, timestamp: int = None) -> Dict[str, Union[Balance, str]]:
         """
         Get spot balance for an exchange.
 
         Args:
             exchange: ccxt Exchange instance
-        
+            timestamp: Timestamp (milliseconds)
+
         Returns:
             Dict: Spot balance data
         """
@@ -299,7 +339,7 @@ class ExchangeService:
                 balance = await exchange.fetch_balance()
 
             tasks = [
-                self.__process_symbol(exchange, symbol, balance)
+                self.__process_symbol(exchange, symbol, balance, timestamp)
                 for symbol in balance['total'].keys()
             ]
             
@@ -314,7 +354,7 @@ class ExchangeService:
         except Exception as e:
             return {"error": str(e)}
         
-    async def get_spot_assets(self, min_value: Decimal = Decimal('0.1')) -> Dict[str, Union[Balance, str]]:
+    async def get_spot_assets(self, min_value: Decimal = Decimal('0.1'), timestamp: int = None) -> AssetsData:
         """
         Get spot assets from all exchanges.
 
@@ -328,7 +368,7 @@ class ExchangeService:
             return {}
 
         tasks = [
-            (name, self.get_spot_balance(exchange))
+            (name, self.get_spot_balance(exchange, timestamp))
             for name, exchange in self.exchanges.items()
         ]
 

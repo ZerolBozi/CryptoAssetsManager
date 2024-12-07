@@ -1,24 +1,19 @@
-from datetime import datetime
-from typing import Dict, Union, Optional
 from contextlib import asynccontextmanager
+from typing import Dict, Union, Optional, List
+from datetime import datetime, timezone, timedelta
 
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import FastAPI, HTTPException, Query, WebSocket
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from app.config import settings
-from app.services.exchange_service import ExchangeService
-from app.services.currency_service import CurrencyService
-from app.services.websocket_service import WebSocketService
+from app.database.connection import MongoDB
+from app.services.asset_structure import AssetSnapshot
+from app.services.service_manager import ServiceManager
 
 # 快取週期
-PRICE_CACHE_TTL = 60
-TRADE_CACHE_TTL = 600
-service = ExchangeService(PRICE_CACHE_TTL, TRADE_CACHE_TTL)
-
-currency_service = CurrencyService()
-
-ws_service = WebSocketService()
+CACHE_TTL = 60000
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -28,22 +23,37 @@ async def lifespan(app: FastAPI):
     """
     try:
         # Startup
-        await service.initialize_exchanges_by_server()
-        print("Exchanges initialized successfully")
+        await MongoDB.connect()
+        await ServiceManager.initialize_all()
+
+        scheduler = AsyncIOScheduler()
+
+        async def update_daily_assets():
+            yesterday = datetime.now(timezone.utc) - timedelta(days=1)
+            yesterday_timestamp = int(yesterday.timestamp() * 1000)
+            yesterday_timestamp = (yesterday_timestamp // 86400000) * 86400000
+            asset_processor = ServiceManager.get_asset_processor()
+            await asset_processor.update_daily_snapshot(timestamp=yesterday_timestamp)
+
+        scheduler.add_job(
+            update_daily_assets,
+            'cron',
+            hour=0,
+            minute=0,
+            timezone='UTC'
+        )
+
+        scheduler.start()
+        print("Daily asset update scheduler started")
+
     except Exception as e:
         print(f"Failed to initialize exchanges: {str(e)}")
     
     yield
     
     # Shutdown
-    for exchange_name, exchange in service.exchanges.items():
-        try:
-            await exchange.close()
-            print(f"Closed connection to {exchange_name}")
-        except Exception as e:
-            print(f"Error closing {exchange_name} connection: {str(e)}")
-
-    await ws_service.stop()
+    scheduler.shutdown()
+    await ServiceManager.cleanup_all()
 
 app = FastAPI(
     title="Crypto Asset Manager",
@@ -73,8 +83,9 @@ async def update_exchange_settings(apis: Dict[str, Dict[str, str]]) -> Dict[str,
         Dict with status message
     """
     try:
-        await service.initialize_exchanges(apis)
-        results = await service.ping_exchanges()
+        exchange_service = ServiceManager.get_exchange_service()
+        await exchange_service.initialize_exchanges(apis)
+        results = await exchange_service.ping_exchanges()
 
         failed_exchanges = [name for name, result in results.items() if not result]
        
@@ -99,7 +110,8 @@ async def initialize_exchanges() -> Dict[str, str]:
         Dict with status message
     """
     try:
-        await service.initialize_exchanges_by_server()
+        exchange_service = ServiceManager.get_exchange_service()
+        await exchange_service.initialize_exchanges_by_server()
         return {"status": "success", "message": "Exchanges initialized successfully"}
     except Exception as e:
         raise HTTPException(
@@ -113,7 +125,8 @@ async def ping_exchanges() -> Dict[str, Union[Dict[str, Union[bool, str]], str]]
     Quickly check connection status for all exchanges.
     """
     try:
-        results = await service.ping_exchanges()
+        exchange_service = ServiceManager.get_exchange_service()
+        results = await exchange_service.ping_exchanges()
         return {
             "status": "success",
             "data": results
@@ -124,25 +137,66 @@ async def ping_exchanges() -> Dict[str, Union[Dict[str, Union[bool, str]], str]]
             detail=f"Failed to ping exchanges: {str(e)}"
         )
     
-@app.get(f"{settings.API_PREFIX}/assets_summary")
-async def get_assets_summary():
-    # 統計總資產、總收益、總報酬率
-    # 設計一個limit參數，可以查看資產變化的歷史紀錄
-    pass
+@app.get(f"{settings.API_PREFIX}/asset_history")
+async def get_asset_history(
+        period: str = Query(
+            default='30d',
+            description="Time period for history (30d, 90d, 180d, 1y)",
+            regex='^(30d|90d|180d|1y)$'
+        )
+    ) -> Dict[str, Union[str, List[Dict]]]:
+    """
+    Get asset history for specified time period.
+    
+    Parameters:
+        period: Time period for history (30d, 90d, 180d, 1y)
+    
+    Returns:
+        Dict containing status and history data
+    """
+    try:
+        asset_processor = ServiceManager.get_asset_processor()
+        history_data  = await asset_processor.get_asset_history(period)
+        
+        return {
+            "status": "success",
+            "data": history_data
+        }
+    except Exception as e:
+        print(e)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch asset history: {str(e)}"
+        )
 
 @app.get(f"{settings.API_PREFIX}/assets")
 async def get_assets(
-        min_value: Optional[float] = Query(default=0.1, description="Minimum value threshold in USDT")
+        min_value: Optional[float] = Query(default=1, description="Minimum value threshold in USDT")
     ) -> Dict[str, Union[Dict, str]]:
     """
     Get all spot assets from all exchanges.
     Parameters:
-        min_value_threshold: Minimum value threshold in USDT (default: 0.1)
+        min_value_threshold: Minimum value threshold in USDT (default: 1)
     Returns:
         Dict with assets data from all exchanges
     """
     try:
-        assets = await service.get_spot_assets(min_value=min_value)
+        current_time = int(datetime.now(timezone.utc).timestamp() * 1000)
+
+        asset_processor = ServiceManager.get_asset_processor()
+        snapshot_data: AssetSnapshot = await asset_processor.get_latest_snapshot()
+
+        if (snapshot_data) and (current_time - snapshot_data.update_time < CACHE_TTL):
+            return {
+                "status": "success",
+                "data": snapshot_data.to_dict()
+            }
+
+        exchange_service = ServiceManager.get_exchange_service()
+        assets = await exchange_service.get_spot_assets(min_value=min_value)
+
+        await asset_processor.update_daily_snapshot(assets=assets)
+        
         return {
             "status": "success",
             "data": assets
@@ -156,6 +210,7 @@ async def get_assets(
 @app.get(f"{settings.API_PREFIX}/exchange_rate/usdt_twd")
 async def get_usdt_twd_rate():
     """Get USDT to TWD exchange rate from MAX"""
+    currency_service = ServiceManager.get_currency_service()
     rate = await currency_service.get_usdt_twd_rate()
     if rate:
         return {
@@ -176,6 +231,7 @@ async def ping_websocket() -> Dict[str, str]:
     Check if WebSocket service is running.
     """
     try:
+        ws_service = ServiceManager.get_websocket_service()
         if ws_service.is_running:
             return {
                 "status": "success",
@@ -198,6 +254,7 @@ async def connect_websocket() -> Dict[str, str]:
     Initialize and start WebSocket service.
     """
     try:
+        ws_service = ServiceManager.get_websocket_service()
         if not ws_service.is_running:
             await ws_service.initialize()
             await ws_service.start_watching()
@@ -221,6 +278,7 @@ async def disconnect_websocket() -> Dict[str, str]:
     Stop WebSocket service and disconnect all clients.
     """
     try:
+        ws_service = ServiceManager.get_websocket_service()
         if ws_service.is_running:
             await ws_service.stop()
             return {
@@ -242,6 +300,7 @@ async def websocket_endpoint(websocket: WebSocket):
     """
     WebSocket endpoint for kline data streaming
     """
+    ws_service = ServiceManager.get_websocket_service()
     if not ws_service.is_running:
         await websocket.close(code=1000, reason="WebSocket service is not running")
         return

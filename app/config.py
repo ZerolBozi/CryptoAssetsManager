@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     # DB Settings
     MONGODB_URI: str = "mongodb://localhost:27017"
     MONGODB_DB_NAME: str = "crypto_asset_manager"
+    MONGODB_MAX_CONNECTIONS: int = 1
+    MONGODB_MIN_CONNECTIONS: int = 1
 
     # API Version
     API_VERSION: str = "v1"
