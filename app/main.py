@@ -218,20 +218,79 @@ async def get_assets(
 @app.get(f"{settings.API_PREFIX}/exchange_rate/usdt_twd")
 async def get_usdt_twd_rate():
     """Get USDT to TWD exchange rate from MAX"""
-    currency_service = ServiceManager.get_currency_service()
-    rate = await currency_service.get_usdt_twd_rate()
-    if rate:
-        return {
-            'status': 'success',
-            'data': {
-                'rate': rate,
-                'timestamp': datetime.now().isoformat()
+    try:
+        currency_service = ServiceManager.get_currency_service()
+        rate = await currency_service.get_usdt_twd_rate()
+        if rate:
+            return {
+                'status': 'success',
+                'data': {
+                    'rate': rate,
+                    'timestamp': datetime.now().isoformat()
+                }
             }
+        return {
+            'status': 'error',
+            'data': {}
         }
-    raise HTTPException(
-        status_code=503, 
-        detail="Could not fetch exchange rate"
-    )
+    except Exception as e:
+        raise HTTPException(
+            status_code=503, 
+            detail="Could not fetch exchange rate"
+        )
+
+@app.get(f"{settings.API_PREFIX}/deposit_networks")
+async def get_deposit_networks(exchange: str, symbol: str) -> Dict:
+    """
+    Get deposit networks for a symbol from an exchange.
+    Parameters:
+        exchange: Exchange name, lowercase (e.g. 'binance')
+        symbol: Trading pair symbol (e.g. 'BTC')
+    Returns:
+        Dict with deposit networks
+    """
+    try:
+        transfer_service = ServiceManager.get_transfer_service()
+        _exchange = transfer_service.exchanges.get(exchange, None)
+        if _exchange is not None:
+            networks = await transfer_service.get_deposit_networks(_exchange, symbol)
+            return {
+                "status": "success",
+                "data": networks
+            }
+        return {
+            "status": "error",
+            "message": "Exchange not found"
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get deposit networks: {str(e)}"
+        )
+    
+@app.get(f"{settings.API_PREFIX}/deposit_address")
+async def get_deposit_address(exchange: str, symbol: str, network: str) -> Dict:
+    """
+    Get deposit address for a symbol from an exchange.
+    Parameters:
+        exchange: Exchange name, lowercase (e.g. 'binance') ['binance', 'okx', 'mexc', 'gateio']
+        symbol: Trading pair symbol (e.g. 'BTC')
+        network: Network (e.g. 'TRC20')
+    Returns:
+        Dict with deposit address
+    """
+    try:
+        transfer_service = ServiceManager.get_transfer_service()
+        address = await transfer_service.get_deposit_address(exchange, symbol, network)
+        return {
+            "status": "success",
+            "data": address
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get deposit address: {str(e)}"
+        )
     
 @app.get(f"{settings.API_PREFIX}/ping_ws")
 async def ping_websocket() -> Dict[str, str]:

@@ -9,12 +9,14 @@ from app.services.exchange.base_exchange import BaseExchange
 from app.services.exchange.quote_service import QuoteService
 from app.services.exchange.wallet_service import WalletService
 from app.services.exchange.trading_service import TradingService
+from app.services.exchange.transfer_service import TransferService
 
 class ServiceManager:
     _base_exchange: Optional[BaseExchange] = None
     _quote_service: Optional[QuoteService] = None
     _wallet_service: Optional[WalletService] = None
     _trading_service: Optional[TradingService] = None
+    _transfer_service: Optional[TransferService] = None
     _asset_history_db: Optional[AssetHistoryDB] = None
     _asset_processor: Optional[AssetHistoryService] = None
     _currency_service: Optional[CurrencyService] = None
@@ -37,6 +39,12 @@ class ServiceManager:
         if cls._trading_service is None:
             cls._trading_service = TradingService(cls.get_quote_service())
         return cls._trading_service
+    
+    @classmethod
+    def get_transfer_service(cls) -> TransferService:
+        if cls._transfer_service is None:
+            cls._transfer_service = TransferService()
+        return cls._transfer_service
 
     @classmethod
     def get_wallet_service(cls) -> WalletService:
@@ -83,10 +91,15 @@ class ServiceManager:
             await base_exchange.initialize_exchanges_by_server()
 
             wallet_service = cls.get_wallet_service()
+            
+            transfer_service = cls.get_transfer_service()
+            
             asset_history_db = cls.get_asset_history_db()
             
             # Initialize exchanges in wallet service
             await wallet_service.initialize_exchanges_by_server()
+
+            await transfer_service.initialize_exchanges_by_server()
             
             # Initialize database indexes
             await asset_history_db.create_indexes()
