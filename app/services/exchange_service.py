@@ -5,7 +5,7 @@ from typing import Dict, List, Optional, Union
 import ccxt.async_support as ccxt
 
 from app.config import settings
-from app.services.asset_structure import Balance, AssetsData
+from app.structures.asset_structure import Balance, AssetsData
 
 class ExchangeService:
     def __init__(self) -> None:
@@ -389,7 +389,7 @@ class ExchangeService:
             filtered_result = {}
 
             for symbol, balance in result.items():
-                if (balance.value_in_usdt >= min_value) and (symbol != 'USDT'):
+                if (balance.value_in_usdt >= min_value) or (symbol == 'USDT'):
                     filtered_result[symbol] = balance
                 assets_summary['total'] += balance.value_in_usdt
                 assets_summary['profit'] += balance.profit_usdt

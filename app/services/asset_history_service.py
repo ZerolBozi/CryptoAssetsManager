@@ -2,18 +2,20 @@ from decimal import Decimal
 from typing import List, Optional
 from datetime import datetime, timezone, timedelta
 
-from app.services.asset_structure import AssetSnapshot, Balance, AssetsData
-    
+from app.database.asset_history import AssetHistoryDB
+from app.services.exchange.wallet_service import WalletService
+from app.structures.asset_structure import AssetSnapshot, AssetsData
 
-class AssetHistoryProcessor:
-    def __init__(self, exchange_service, asset_history_db):
-        self.exchange_service = exchange_service
+class AssetHistoryService:
+    def __init__(self, wallet_service: WalletService, asset_history_db: AssetHistoryDB):
+        self.wallet_service = wallet_service
+        self.quote_service = wallet_service.quote_service
         self.asset_history_db = asset_history_db
 
     def __convert_to_daily_timestamp(self, timestamp: int) -> int:
         return (timestamp // 86400000) * 86400000
     
-    async def get_asset_history(self, period: str) -> List[AssetSnapshot]:
+    async def get_asset_history(self, period: int) -> List[AssetSnapshot]:
         """
         Get asset history for specified time period, filling gaps with historical price data if needed.
         
@@ -22,18 +24,9 @@ class AssetHistoryProcessor:
             
         Returns:
             List[AssetSnapshot]: List of snapshots for the period
-        """
-        period_days = {
-            '30d': 30,
-            '90d': 90,
-            '180d': 180,
-            '1y': 365
-        }
-
-        days = period_days[period]
-        
+        """      
         end_time = datetime.now(timezone.utc)
-        start_time = end_time - timedelta(days=days)
+        start_time = end_time - timedelta(days=period)
         
         end_timestamp = int(end_time.timestamp() * 1000)
         start_timestamp = int(start_time.timestamp() * 1000)
@@ -47,7 +40,7 @@ class AssetHistoryProcessor:
             } for snapshot in snapshots
         ]
         
-        if len(simplified_snapshots) >= days:
+        if len(simplified_snapshots) >= period:
             return simplified_snapshots
             
         if not simplified_snapshots:
@@ -74,7 +67,7 @@ class AssetHistoryProcessor:
         timestamp_data = {}
     
         for exchange_name, assets in oldest_snapshot.exchanges.items():
-            exchange = self.exchange_service.exchanges.get(exchange_name)
+            exchange = self.wallet_service.exchanges.get(exchange_name)
             if not exchange:
                 continue
                 
@@ -82,7 +75,7 @@ class AssetHistoryProcessor:
                 if symbol == "USDT":
                     continue
                     
-                price_history = await self.exchange_service.get_price_history(
+                price_history = await self.quote_service.get_price_history(
                     exchange,
                     f"{symbol}/USDT",
                     '1d',
@@ -158,13 +151,16 @@ class AssetHistoryProcessor:
         """
         try:
             if assets is None:
-                assets = await self.exchange_service.get_spot_assets(min_value, timestamp)
+                assets = await self.wallet_service.get_assets(min_value, timestamp)
                 if not assets:
                     return None
             
             # Get current daily timestamp
             current_timestamp = int(datetime.now(timezone.utc).timestamp() * 1000)
-            daily_timestamp = self.__convert_to_daily_timestamp(current_timestamp)
+            if timestamp is None:
+                daily_timestamp = self.__convert_to_daily_timestamp(current_timestamp)
+            else:
+                daily_timestamp = timestamp
             
             # Create snapshot from assets data
             snapshot = AssetSnapshot.from_spot_assets(assets, daily_timestamp, current_timestamp)

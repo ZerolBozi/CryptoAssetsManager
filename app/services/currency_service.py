@@ -17,13 +17,11 @@ class CurrencyService:
         return self.cache
         
     def _should_update_cache(self) -> bool:
-        """Check if cache needs update"""
         if self.cache is None or self.last_update is None:
             return True
         return datetime.now() - self.last_update > self.cache_duration
         
     async def _update_cache(self):
-        """Update exchange rate cache"""
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(self.api_url) as response:

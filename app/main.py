@@ -6,11 +6,12 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import FastAPI, HTTPException, Query, WebSocket
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.events import EVENT_JOB_EXECUTED, EVENT_JOB_ERROR
 
 from app.config import settings
 from app.database.connection import MongoDB
-from app.services.asset_structure import AssetSnapshot
 from app.services.service_manager import ServiceManager
+from app.structures.asset_structure import AssetSnapshot
 
 # 快取週期
 CACHE_TTL = 60000
@@ -24,7 +25,7 @@ async def lifespan(app: FastAPI):
     try:
         # Startup
         await MongoDB.connect()
-        await ServiceManager.initialize_all()
+        await ServiceManager.initialize_services()
 
         scheduler = AsyncIOScheduler()
 
@@ -43,6 +44,11 @@ async def lifespan(app: FastAPI):
             timezone='UTC'
         )
 
+        scheduler.add_listener(
+            lambda event: print(f"Job executed: {event.job_id}, executed at {event.scheduled_run_time}"),
+            EVENT_JOB_EXECUTED | EVENT_JOB_ERROR
+        )
+
         scheduler.start()
         print("Daily asset update scheduler started")
 
@@ -53,7 +59,7 @@ async def lifespan(app: FastAPI):
     
     # Shutdown
     scheduler.shutdown()
-    await ServiceManager.cleanup_all()
+    await ServiceManager.cleanup_services()
 
 app = FastAPI(
     title="Crypto Asset Manager",
@@ -83,9 +89,9 @@ async def update_exchange_settings(apis: Dict[str, Dict[str, str]]) -> Dict[str,
         Dict with status message
     """
     try:
-        exchange_service = ServiceManager.get_exchange_service()
-        await exchange_service.initialize_exchanges(apis)
-        results = await exchange_service.ping_exchanges()
+        base_exchange = ServiceManager.get_base_exchange()
+        await base_exchange.initialize_exchnages(apis)
+        results = await base_exchange.ping_exchanges()
 
         failed_exchanges = [name for name, result in results.items() if not result]
        
@@ -110,8 +116,8 @@ async def initialize_exchanges() -> Dict[str, str]:
         Dict with status message
     """
     try:
-        exchange_service = ServiceManager.get_exchange_service()
-        await exchange_service.initialize_exchanges_by_server()
+        base_exchange = ServiceManager.get_base_exchange()
+        await base_exchange.initialize_exchanges_by_server()
         return {"status": "success", "message": "Exchanges initialized successfully"}
     except Exception as e:
         raise HTTPException(
@@ -125,8 +131,8 @@ async def ping_exchanges() -> Dict[str, Union[Dict[str, Union[bool, str]], str]]
     Quickly check connection status for all exchanges.
     """
     try:
-        exchange_service = ServiceManager.get_exchange_service()
-        results = await exchange_service.ping_exchanges()
+        base_exchange = ServiceManager.get_base_exchange()
+        results = await base_exchange.ping_exchanges()
         return {
             "status": "success",
             "data": results
@@ -139,17 +145,19 @@ async def ping_exchanges() -> Dict[str, Union[Dict[str, Union[bool, str]], str]]
     
 @app.get(f"{settings.API_PREFIX}/asset_history")
 async def get_asset_history(
-        period: str = Query(
-            default='30d',
-            description="Time period for history (30d, 90d, 180d, 1y)",
-            regex='^(30d|90d|180d|1y)$'
+        period: int = Query(
+            default=30,
+            description="Time period for history (30, 90, 180, 365)",
+            ge=30,
+            le=365,
+            values=[30, 90, 180, 365]
         )
     ) -> Dict[str, Union[str, List[Dict]]]:
     """
     Get asset history for specified time period.
     
     Parameters:
-        period: Time period for history (30d, 90d, 180d, 1y)
+        period: Time period for history (30, 90, 180, 365)
     
     Returns:
         Dict containing status and history data
@@ -192,8 +200,8 @@ async def get_assets(
                 "data": snapshot_data.to_dict()
             }
 
-        exchange_service = ServiceManager.get_exchange_service()
-        assets = await exchange_service.get_spot_assets(min_value=min_value)
+        wallet_service = ServiceManager.get_wallet_service()
+        assets = await wallet_service.get_assets(min_value=min_value)
 
         await asset_processor.update_daily_snapshot(assets=assets)
         

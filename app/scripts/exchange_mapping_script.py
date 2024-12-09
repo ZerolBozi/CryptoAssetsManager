@@ -4,7 +4,7 @@ import json
 
 import requests
 
-def get_symbol_exchange_mapping() -> dict:
+def make_symbol_exchange_mapping() -> dict:
     upbit = Upbit()
     binance = Binance()
     okx = OKX()
@@ -39,7 +39,7 @@ def get_symbol_exchange_mapping() -> dict:
 
     current_dir = os.path.dirname(os.path.abspath(__file__))
     root_dir = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
-    services_dir = os.path.join(root_dir, 'CryptoAssetsManager', 'app', 'services')
+    services_dir = os.path.join(root_dir, 'CryptoAssetsManager')
     file_path = os.path.join(services_dir, "symbol_exchange_mapping.json")
 
     with open(file_path, 'w') as f:
