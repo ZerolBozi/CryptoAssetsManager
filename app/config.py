@@ -17,6 +17,14 @@ class Settings(BaseSettings):
     OKX_SECRET: str
     OKX_PASSWORD: str
 
+    # BYBIT API
+    BYBIT_API_KEY: str
+    BYBIT_SECRET: str
+
+    # BITGET API
+    BITGET_API_KEY: str
+    BITGET_SECRET: str
+
     # MEXC API
     MEXC_API_KEY: str
     MEXC_SECRET: str

@@ -1,6 +1,6 @@
 import asyncio
 from decimal import Decimal
-from typing import Dict, Union
+from typing import Dict, Union, List
 
 import ccxt.async_support as ccxt
 
@@ -120,5 +120,23 @@ class QuoteService(BaseExchange):
             ticker = await exchange.fetch_ticker(symbol)
             price = Decimal(ticker.get('last', Decimal(0)))
             return price
+        except Exception as e:
+            return Decimal(0)
+        
+    async def get_current_prices(self, exchange: ccxt.Exchange, symbols: List[str]) -> Dict[str, Decimal]:
+        """
+        Get the current price for symbols from an exchange
+
+        Args:
+            exchange: ccxt Exchange instance
+            symbols: Trading pair symbol (e.g. ['BTC/USDT', 'ETH/USDT'])
+        
+        Returns:
+            Dict: Current prices
+        """
+        try:
+            tickers = await exchange.fetch_tickers(symbols)
+            prices = {k: Decimal(str(v.get('last', '0'))) for k, v in tickers.items()}
+            return prices
         except Exception as e:
             return Decimal(0)
