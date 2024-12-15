@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+.venv
 
 # Database
 *.db
@@ -22,3 +23,5 @@ Thumbs.db
 *.log
 
 *.ipynb
+
+asset_cost.py

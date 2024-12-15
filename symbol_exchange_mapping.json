@@ -109,7 +109,10 @@
     "UNI",
     "AGLD",
     "PEPE",
-    "BONK"
+    "BONK",
+    "RENDER",
+    "MOVE",
+    "ME"
   ],
   "OKX": [
     "BSV",
@@ -125,25 +128,29 @@
     "MEW",
     "SAFE"
   ],
-  "MEXC": [
-    "GAME2",
-    "DKA",
+  "Bybit": [
+    "MLK",
     "MVL",
-    "FCT2",
     "CBK",
-    "HPO",
-    "STRIKE",
     "MNT",
     "TAIKO",
     "BLAST",
     "CARV",
     "DRIFT"
   ],
+  "Bitget": [
+    "GAME2",
+    "AQT"
+  ],
+  "MEXC": [
+    "DKA",
+    "FCT2",
+    "HPO",
+    "STRIKE"
+  ],
   "Gate.io": [
     "TT",
     "MED",
-    "MLK",
-    "AQT",
     "AKT"
   ],
   "Upbit": [
