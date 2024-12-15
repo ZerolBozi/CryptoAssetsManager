@@ -2,6 +2,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 
 from app.config import settings
 
+
 class MongoDB:
     client: AsyncIOMotorClient = None
     db = None
@@ -18,9 +19,9 @@ class MongoDB:
             cls.client = AsyncIOMotorClient(
                 settings.MONGODB_URI,
                 maxPoolSize=settings.MONGODB_MAX_CONNECTIONS,
-                minPoolSize=settings.MONGODB_MIN_CONNECTIONS
+                minPoolSize=settings.MONGODB_MIN_CONNECTIONS,
             )
-            await cls.client.admin.command('ping')
+            await cls.client.admin.command("ping")
             print("Connected to MongoDB")
 
     @classmethod

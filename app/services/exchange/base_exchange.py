@@ -5,6 +5,7 @@ import ccxt.async_support as ccxt
 
 from app.config import settings
 
+
 class BaseExchange:
     def __init__(self) -> None:
         self.exchanges: Dict[str, ccxt.Exchange] = {}
@@ -19,7 +20,7 @@ class BaseExchange:
                     "secret": "your_secret"
                 },
                 "okx": {
-                    "api_key": "your_api_key", 
+                    "api_key": "your_api_key",
                     "secret": "your_secret",
                     "password": "your_password"
                 },
@@ -35,21 +36,21 @@ class BaseExchange:
         }
         """
         exchange_classes = {
-            'binance': ccxt.binance,
-            'okx': ccxt.okx,
-            'mexc': ccxt.mexc,
-            'gateio': ccxt.gateio
+            "binance": ccxt.binance,
+            "okx": ccxt.okx,
+            "mexc": ccxt.mexc,
+            "gateio": ccxt.gateio,
         }
 
         default_config = {
-            'enableRateLimit': settings.ENABLE_RATE_LIMIT,
-            'timeout': settings.API_CONNECT_TIMEOUT
+            "enableRateLimit": settings.ENABLE_RATE_LIMIT,
+            "timeout": settings.API_CONNECT_TIMEOUT,
         }
 
         # reset
         self.exchanges = {}
 
-        for exchange_name, exchange_config in apis['exchanges'].items():
+        for exchange_name, exchange_config in apis["exchanges"].items():
             exchange_class = exchange_classes.get(exchange_name)
             if not exchange_class:
                 continue
@@ -59,28 +60,40 @@ class BaseExchange:
 
     async def initialize_exchanges_by_server(self) -> None:
         exchange_configs = {
-            'binance': (ccxt.binance, {
-                'apiKey': settings.BINANCE_API_KEY,
-                'secret': settings.BINANCE_SECRET,
-            }),
-            'okx': (ccxt.okx, {
-                'apiKey': settings.OKX_API_KEY,
-                'secret': settings.OKX_SECRET,
-                'password': settings.OKX_PASSWORD,
-            }),
-            'mexc': (ccxt.mexc, {
-                'apiKey': settings.MEXC_API_KEY,
-                'secret': settings.MEXC_SECRET,
-            }),
-            'gateio': (ccxt.gateio, {
-                'apiKey': settings.GATEIO_API_KEY,
-                'secret': settings.GATEIO_SECRET,
-            })
+            "binance": (
+                ccxt.binance,
+                {
+                    "apiKey": settings.BINANCE_API_KEY,
+                    "secret": settings.BINANCE_SECRET,
+                },
+            ),
+            "okx": (
+                ccxt.okx,
+                {
+                    "apiKey": settings.OKX_API_KEY,
+                    "secret": settings.OKX_SECRET,
+                    "password": settings.OKX_PASSWORD,
+                },
+            ),
+            "mexc": (
+                ccxt.mexc,
+                {
+                    "apiKey": settings.MEXC_API_KEY,
+                    "secret": settings.MEXC_SECRET,
+                },
+            ),
+            "gateio": (
+                ccxt.gateio,
+                {
+                    "apiKey": settings.GATEIO_API_KEY,
+                    "secret": settings.GATEIO_SECRET,
+                },
+            ),
         }
 
         default_config = {
-            'enableRateLimit': settings.ENABLE_RATE_LIMIT,
-            'timeout': settings.API_CONNECT_TIMEOUT
+            "enableRateLimit": settings.ENABLE_RATE_LIMIT,
+            "timeout": settings.API_CONNECT_TIMEOUT,
         }
 
         self.exchanges = {
@@ -104,11 +117,16 @@ class BaseExchange:
         """
         if not self.exchanges:
             return None
-        
+
         try:
             results = await asyncio.gather(
-                *[self.__ping_exchange(exchange) for exchange in self.exchanges.values()]
+                *[
+                    self.__ping_exchange(exchange)
+                    for exchange in self.exchanges.values()
+                ]
             )
-            return {name: result for name, result in zip(self.exchanges.keys(), results)}
+            return {
+                name: result for name, result in zip(self.exchanges.keys(), results)
+            }
         except Exception as e:
             return None

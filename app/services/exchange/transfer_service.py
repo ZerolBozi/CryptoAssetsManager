@@ -6,6 +6,7 @@ import ccxt.async_support as ccxt
 
 from app.services.exchange.base_exchange import BaseExchange
 
+
 class TransferService(BaseExchange):
     def __init__(self):
         super().__init__()
@@ -58,16 +59,21 @@ class TransferService(BaseExchange):
         try:
             exchange = self.__get_exchange_by_name(exchange_name)
             data: dict = await exchange.fetch_deposit_withdraw_fee(currency)
-            networks = data.get('networks', '')
-            if exchange.id == 'mexc':
-                networks = {re.search(r'\((.*?)\)', k).group(1) if '(' in k else k: v for k, v in networks.items()}
-            
+            networks = data.get("networks", "")
+            if exchange.id == "mexc":
+                networks = {
+                    re.search(r"\((.*?)\)", k).group(1) if "(" in k else k: v
+                    for k, v in networks.items()
+                }
+
             return networks
 
         except Exception as e:
             return {}
 
-    async def get_deposit_address(self, exchange_name: str, currency: str, network: str) -> Dict:
+    async def get_deposit_address(
+        self, exchange_name: str, currency: str, network: str
+    ) -> Dict:
         """
         Get deposit address for a currency from an exchange.
 
@@ -85,14 +91,23 @@ class TransferService(BaseExchange):
         """
         try:
             exchange = self.__get_exchange_by_name(exchange_name)
-            data: dict = await exchange.fetch_deposit_address(currency, params={'network': network})
+            data: dict = await exchange.fetch_deposit_address(
+                currency, params={"network": network}
+            )
             return {
-                'currency': data.get('currency', ''),
-                'address': data.get('address', ''),
+                "currency": data.get("currency", ""),
+                "address": data.get("address", ""),
             }
-        
+
         except Exception as e:
             return {}
-        
-    async def withdraw(self, exchange_name: str, currency: str, amount: float, address: str, network: str) -> Dict:
+
+    async def withdraw(
+        self,
+        exchange_name: str,
+        currency: str,
+        amount: float,
+        address: str,
+        network: str,
+    ) -> Dict:
         pass

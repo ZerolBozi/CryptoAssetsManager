@@ -1,6 +1,9 @@
 from typing import Dict, List, Optional
+
 from motor.motor_asyncio import AsyncIOMotorClient
+
 from .base import MongoDBBase
+
 
 class AssetHistoryDB(MongoDBBase):
     def __init__(self, mongo_client: AsyncIOMotorClient):
@@ -13,13 +16,10 @@ class AssetHistoryDB(MongoDBBase):
             projection={"_id": 0},
         )
 
-    async def get_snapshots_by_timeframe(self, start_time: int, end_time: int) -> List[Dict]:
+    async def get_snapshots_by_timeframe(
+        self, start_time: int, end_time: int
+    ) -> List[Dict]:
         return await self.find_many(
-            query={
-                "timestamp": {
-                    "$gte": start_time,
-                    "$lte": end_time
-                }
-            },
+            query={"timestamp": {"$gte": start_time, "$lte": end_time}},
             projection={"_id": 0},
         )

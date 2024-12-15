@@ -3,6 +3,7 @@ from pydantic_settings import BaseSettings
 
 load_dotenv()
 
+
 class Settings(BaseSettings):
     # Common Settings
     API_CONNECT_TIMEOUT: int = 15000
@@ -11,7 +12,7 @@ class Settings(BaseSettings):
     # Binance API
     BINANCE_API_KEY: str
     BINANCE_SECRET: str
-    
+
     # OKX API
     OKX_API_KEY: str
     OKX_SECRET: str
@@ -45,13 +46,14 @@ class Settings(BaseSettings):
     @property
     def API_PREFIX(self) -> str:
         return f"/api/{self.API_VERSION}"
-    
+
     # App settings
     DEBUG: bool = False
 
     class Config:
         env_file = ".env"
-        env_file_encoding = 'utf-8'
+        env_file_encoding = "utf-8"
         case_sensitive = True
+
 
 settings = Settings()

@@ -7,20 +7,21 @@ import ccxt.async_support as ccxt
 from app.services.exchange.base_exchange import BaseExchange
 from app.services.exchange.quote_service import QuoteService
 
+
 class TradingService(BaseExchange):
     def __init__(self, quote_service: QuoteService):
         super().__init__()
         self.quote_service = quote_service
 
     async def place_order(
-            self, 
-            exchange: ccxt.Exchange, 
-            symbol: str,
-            side: str,
-            order_type: str,
-            amount: float,
-            price: float = None
-        ) -> Dict:
+        self,
+        exchange: ccxt.Exchange,
+        symbol: str,
+        side: str,
+        order_type: str,
+        amount: float,
+        price: float = None,
+    ) -> Dict:
         """
         Place an order on an exchange.
 
@@ -61,24 +62,24 @@ class TradingService(BaseExchange):
             }
         """
         try:
-            if side not in ['buy', 'sell']:
+            if side not in ["buy", "sell"]:
                 raise ValueError("Side must be 'buy' or 'sell'")
-            
-            if order_type not in ['market', 'limit']:
+
+            if order_type not in ["market", "limit"]:
                 raise ValueError("Order type must be 'market' or 'limit'")
-            
-            if (order_type == 'limit') and (price is None):
+
+            if (order_type == "limit") and (price is None):
                 raise ValueError("Price is required for limit orders")
-            
+
             order_params = {
-                'symbol': symbol,
-                'type': order_type,
-                'side': side,
-                'amount': amount
+                "symbol": symbol,
+                "type": order_type,
+                "side": side,
+                "amount": amount,
             }
 
-            if order_type == 'limit':
-                order_params['price'] = price
+            if order_type == "limit":
+                order_params["price"] = price
 
             response = await exchange.create_order(**order_params)
             return response
@@ -87,14 +88,14 @@ class TradingService(BaseExchange):
             raise Exception(f"Failed to place order: {str(e)}")
 
     async def place_order_with_cost(
-            self,
-            exchange: ccxt.Exchange,
-            symbol: str,
-            side: str,
-            order_type: str,
-            cost: float,
-            price: float = None
-        ) -> Dict:
+        self,
+        exchange: ccxt.Exchange,
+        symbol: str,
+        side: str,
+        order_type: str,
+        cost: float,
+        price: float = None,
+    ) -> Dict:
         """
         Place an order on an exchange with cost.
 
@@ -111,7 +112,9 @@ class TradingService(BaseExchange):
         """
         try:
             if price is None:
-                current_price =  await self.quote_service.get_current_price(exchange, symbol)
+                current_price = await self.quote_service.get_current_price(
+                    exchange, symbol
+                )
                 if not current_price:
                     raise ValueError("Failed to get current price")
                 _price = float(current_price)
@@ -119,7 +122,7 @@ class TradingService(BaseExchange):
                 _price = price
 
             amount = Decimal(str(cost / _price))
-            rounded_amount = amount.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+            rounded_amount = amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
             return await self.place_order(
                 exchange=exchange,
@@ -127,31 +130,33 @@ class TradingService(BaseExchange):
                 side=side,
                 order_type=order_type,
                 amount=float(rounded_amount),
-                price=_price if order_type == 'limit' else None
+                price=_price if order_type == "limit" else None,
             )
 
         except Exception as e:
             raise Exception(f"Failed to place order with cost: {str(e)}")
-        
-    async def get_trade_history(self, exchange: ccxt.Exchange, symbol: str) -> List[Dict]:
+
+    async def get_trade_history(
+        self, exchange: ccxt.Exchange, symbol: str
+    ) -> List[Dict]:
         """
         Get recent trades for a symbol from an exchange. (Use fetchMyTrades)
 
         Args:
             exchange: ccxt Exchange instance
             symbol: Trading pair symbol (e.g. 'BTC/USDT')
-        
+
         Returns:
             List[Dict]: List of trade data
         """
         try:
-            if not exchange.has['fetchMyTrades']:
+            if not exchange.has["fetchMyTrades"]:
                 return []
-            
+
             symbol_alternatives = {
                 "RENDER/USDT": "RNDR/USDT",
-                "FET/USDT": "OCEAN/USDT", 
-                "OCEAN/USDT": "AGIX/USDT"
+                "FET/USDT": "OCEAN/USDT",
+                "OCEAN/USDT": "AGIX/USDT",
             }
 
             trades = await exchange.fetch_my_trades(symbol)
@@ -159,6 +164,6 @@ class TradingService(BaseExchange):
                 trades = await exchange.fetch_my_trades(symbol_alternatives[symbol])
 
             return trades
-        
+
         except Exception as e:
             return []
