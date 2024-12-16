@@ -1,27 +1,71 @@
+import asyncio
 from decimal import Decimal
-from typing import List, Optional
+from typing import List, Dict, Optional
 from datetime import datetime, timezone, timedelta
 
+from app.database.asset import AssetDB
 from app.database.asset_history import AssetHistoryDB
 from app.services.exchange.wallet_service import WalletService
-from app.structures.asset_structure import AssetSnapshot, AssetsData
+from app.structures.asset_structure import AssetSummary
 
 
 class AssetHistoryService:
-    def __init__(self, wallet_service: WalletService, asset_history_db: AssetHistoryDB):
+    def __init__(
+        self,
+        wallet_service: WalletService,
+        asset_db: AssetDB,
+        asset_history_db: AssetHistoryDB,
+    ) -> None:
         self.wallet_service = wallet_service
         self.quote_service = wallet_service.quote_service
+        self.asset_db = asset_db
         self.asset_history_db = asset_history_db
 
     def __convert_to_daily_timestamp(self, timestamp: int) -> int:
         return (timestamp // 86400000) * 86400000
+    
+    async def get_current_assets(self, min_value: Decimal = Decimal("1")) -> Optional[Dict]:
+        recent_asset = await self.asset_db.get_asset_by_time_diff(3600000)
 
-    async def get_asset_history(self, period: int) -> List[AssetSnapshot]:
+        if recent_asset:
+            assets = await self.asset_db.get_all_assets()
+            if assets:
+                exchanges_data = {}
+                total = Decimal("0")
+                profit = Decimal("0")
+                initial = Decimal("0")
+
+                for asset in assets:
+                    if Decimal(asset["value_in_usdt"]) < min_value:
+                        continue
+                    exchange = asset["exchange"]
+                    if exchange not in exchanges_data:
+                        exchanges_data[exchange] = {}
+                    exchanges_data[exchange][asset["symbol"]] = asset
+                    
+                    total += Decimal(asset["value_in_usdt"])
+                    profit += Decimal(asset["profit_usdt"])
+                    initial += Decimal(asset["total"]) * Decimal(asset["avg_price"])
+
+                summary = AssetSummary.calculate_summary(
+                    total=total,
+                    profit=profit,
+                    initial=initial
+                )
+
+                return {
+                    "exchanges": exchanges_data,
+                    "summary": summary.model_dump()
+                }
+
+        return await self.wallet_service.get_assets(min_value)
+
+    async def get_asset_history(self, period: int) -> List[Dict]:
         """
         Get asset history for specified time period, filling gaps with historical price data if needed.
 
         Args:
-            period: Time period for history (30d, 90d, 180d, 1y)
+            period: Time period for history (30, 90, 180, 365)
 
         Returns:
             List[AssetSnapshot]: List of snapshots for the period
@@ -29,188 +73,143 @@ class AssetHistoryService:
         end_time = datetime.now(timezone.utc)
         start_time = end_time - timedelta(days=period)
 
-        end_timestamp = int(end_time.timestamp() * 1000)
-        start_timestamp = int(start_time.timestamp() * 1000)
+        end_timestamp = self.__convert_to_daily_timestamp(int(end_time.timestamp() * 1000))
+        start_timestamp = self.__convert_to_daily_timestamp(int(start_time.timestamp() * 1000))
 
-        snapshots = await self.get_snapshots_by_timeframe(
-            start_timestamp, end_timestamp
+        snapshots = await self.asset_history_db.get_snapshots_by_timeframe(
+            start_timestamp, end_timestamp, limit=period
         )
 
-        simplified_snapshots = [
-            {"timestamp": snapshot.timestamp, "summary": snapshot.summary}
-            for snapshot in snapshots
-        ]
+        if len(snapshots) >= period:
+            return snapshots
+        
+        current_assets = await self.get_current_assets()
+        if not current_assets or "error" in current_assets:
+            return snapshots
 
-        if len(simplified_snapshots) >= period:
-            return simplified_snapshots
+        existing_timestamps = {s["timestamp"] for s in snapshots}
+        missing_timestamps = []
 
-        if not simplified_snapshots:
-            return []
+        curr_timestamp = start_timestamp
+        while curr_timestamp <= end_timestamp:
+            if curr_timestamp not in existing_timestamps:
+                missing_timestamps.append(curr_timestamp)
+            curr_timestamp += 86400000
+            
+        if not missing_timestamps:
+            return snapshots
+        
+        assets_info = []
+        usdt_total = Decimal("0")
 
-        filled_snapshots = await self.__fill_history_data(
-            snapshots, start_timestamp, end_timestamp
-        )
-
-        return filled_snapshots
-
-    async def __fill_history_data(
-        self,
-        existing_snapshots: List[AssetSnapshot],
-        start_timestamp: int,
-        end_timestamp: int,
-    ) -> List[AssetSnapshot]:
-        filled_snapshots = []
-        oldest_snapshot = existing_snapshots[0]
-
-        timestamp_data = {}
-
-        for exchange_name, assets in oldest_snapshot.exchanges.items():
+        for exchange_name, assets in current_assets["exchanges"].items():
             exchange = self.wallet_service.exchanges.get(exchange_name)
             if not exchange:
                 continue
 
-            for symbol, balance in assets.items():
+            for symbol, asset in assets.items():
                 if symbol == "USDT":
+                    usdt_total += Decimal(str(asset["value_in_usdt"]))
                     continue
+                    
+                assets_info.append({
+                    "exchange": exchange,
+                    "exchange_name": exchange_name,
+                    "symbol": symbol,
+                    "total": Decimal(str(asset["total"])),
+                    "avg_price": Decimal(str(asset["avg_price"]))
+                })
 
-                price_history = await self.quote_service.get_price_history(
-                    exchange, f"{symbol}/USDT", "1d", start_timestamp, end_timestamp
-                )
+        price_tasks = [
+            self.quote_service.get_close_price_from_history(
+                asset["exchange"],
+                f"{asset['symbol']}/USDT",
+                "1d",
+                min(missing_timestamps),
+                max(missing_timestamps)
+            )
+            for asset in assets_info
+        ]
 
-                if "error" in price_history:
-                    continue
+        price_results = await asyncio.gather(*price_tasks)
 
-                for candle in price_history["data"]:
-                    timestamp = candle["timestamp"]
-                    close_price = Decimal(str(candle["close"]))
+        price_maps = {
+            f"{asset['exchange_name']}:{asset['symbol']}": prices
+            for asset, prices in zip(assets_info, price_results)
+            if prices
+        }
+        
+        filled_snapshots = []
+        for timestamp in sorted(missing_timestamps):
+            try:
+                total = usdt_total
+                profit = Decimal("0")
+                initial = Decimal("0")
 
-                    existing_snapshot = next(
-                        (s for s in existing_snapshots if s.timestamp == timestamp),
-                        None,
-                    )
-
-                    if existing_snapshot:
-                        if timestamp not in [s["timestamp"] for s in filled_snapshots]:
-                            filled_snapshots.append(
-                                {
-                                    "timestamp": existing_snapshot.timestamp,
-                                    "summary": existing_snapshot.summary,
-                                }
-                            )
+                for asset in assets_info:
+                    price_map = price_maps.get(f"{asset['exchange_name']}:{asset['symbol']}", {})
+                    historical_price = price_map.get(timestamp)
+                    
+                    if not historical_price:
                         continue
 
-                    if timestamp not in timestamp_data:
-                        timestamp_data[timestamp] = {
-                            "total": Decimal("0"),
-                            "profit": Decimal("0"),
-                            "initial": Decimal("0"),
-                            "roi": Decimal("0"),
-                        }
+                    value_in_usdt = asset["total"] * historical_price
+                    initial_value = asset["total"] * asset["avg_price"]
+                    asset_profit = value_in_usdt - initial_value
 
-                    value_in_usdt = balance.total * close_price
-                    initial_value = balance.total * balance.avg_price
-                    profit = value_in_usdt - initial_value
+                    total += value_in_usdt
+                    profit += asset_profit
+                    initial += initial_value
 
-                    timestamp_data[timestamp]["total"] += value_in_usdt
-                    timestamp_data[timestamp]["profit"] += profit
-                    timestamp_data[timestamp]["initial"] += initial_value
+                if initial > 0:
+                    summary = AssetSummary.calculate_summary(
+                        total=total,
+                        profit=profit,
+                        initial=initial
+                    )
 
-        for timestamp, summary_data in timestamp_data.items():
-            if summary_data["initial"] > 0:
-                summary_data["roi"] = (
-                    summary_data["profit"] / summary_data["initial"] * 100
-                )
+                    snapshot = {
+                        "timestamp": timestamp,
+                        "update_time": int(datetime.now(timezone.utc).timestamp() * 1000),
+                        **summary.model_dump_for_db()
+                    }
+                    
+                    await self.asset_history_db.update_history(snapshot)
+                    filled_snapshots.append(snapshot)
 
-            snapshot_data = {"timestamp": timestamp, "summary": summary_data}
+            except Exception as e:
+                print(f"Error calculating snapshot for timestamp {timestamp}: {e}")
+                continue
 
-            if timestamp not in [s["timestamp"] for s in filled_snapshots]:
-                filled_snapshots.append(snapshot_data)
+        all_snapshots = snapshots + filled_snapshots
+        all_snapshots.sort(key=lambda x: x["timestamp"])
 
-        filled_snapshots.sort(key=lambda x: x["timestamp"])
+        return all_snapshots
 
-        return filled_snapshots
-
-    async def update_daily_snapshot(
-        self,
-        assets: Optional[AssetsData] = None,
-        min_value: Decimal = Decimal("1"),
-        timestamp: int = None,
-    ) -> Optional[AssetSnapshot]:
-        """
-        Update or create daily snapshot with provided assets data
-
-        Args:
-            assets: Assets data from get_spot_assets
-                   Format: {
-                       'exchanges': {exchange_name: {symbol: Balance}},
-                       'summary': {metric: Decimal}
-                   }
-
-        Returns:
-            Optional[AssetSnapshot]: Updated or created snapshot
-        """
+    async def update_daily_snapshot(self, timestamp: Optional[int] = None) -> bool:
         try:
-            if assets is None:
-                assets = await self.wallet_service.get_assets(min_value, timestamp)
-                if not assets:
-                    return None
+            current_time = int(datetime.now(timezone.utc).timestamp() * 1000)
+            daily_timestamp = timestamp or self.__convert_to_daily_timestamp(current_time)
 
-            # Get current daily timestamp
-            current_timestamp = int(datetime.now(timezone.utc).timestamp() * 1000)
-            if timestamp is None:
-                daily_timestamp = self.__convert_to_daily_timestamp(current_timestamp)
-            else:
-                daily_timestamp = timestamp
+            if daily_timestamp < self.__convert_to_daily_timestamp(current_time):
+                return False
 
-            # Create snapshot from assets data
-            snapshot = AssetSnapshot.from_spot_assets(
-                assets, daily_timestamp, current_timestamp
-            )
+            assets = await self.get_current_assets()
+            if not assets or "error" in assets:
+                return False
 
-            # Update or insert snapshot
-            await self.asset_history_db.update_one(
-                query={"timestamp": daily_timestamp},
-                update={"$set": snapshot.to_dict()},
-                upsert=True,
-            )
+            summary = assets.get("summary")
+            if not summary:
+                return False
 
-            return snapshot
+            snapshot = {
+                "timestamp": daily_timestamp,
+                "update_time": current_time,
+                **{k: str(v) if isinstance(v, Decimal) else v for k, v in summary.items()}
+            }
+
+            return await self.asset_history_db.update_history(snapshot)
 
         except Exception as e:
             print(f"Error updating daily snapshot: {e}")
-            return None
-
-    async def get_latest_snapshot(self) -> Optional[AssetSnapshot]:
-        try:
-            snapshot_data = await self.asset_history_db.get_latest_snapshot()
-            if not snapshot_data:
-                return None
-            return AssetSnapshot.from_dict(snapshot_data)
-        except Exception as e:
-            print(f"Error getting latest snapshot: {e}")
-            return None
-
-    async def get_snapshots_by_timeframe(
-        self, start_time: int, end_time: int
-    ) -> List[AssetSnapshot]:
-        """
-        Get all snapshots within a timeframe
-
-        Args:
-            start_time: Start timestamp in milliseconds
-            end_time: End timestamp in milliseconds
-
-        Returns:
-            List[AssetSnapshot]: List of snapshots in the timeframe
-        """
-        try:
-            start_timestamp = self.__convert_to_daily_timestamp(start_time)
-            end_timestamp = self.__convert_to_daily_timestamp(end_time)
-
-            snapshots_data = await self.asset_history_db.get_snapshots_by_timeframe(
-                start_timestamp, end_timestamp
-            )
-            return [AssetSnapshot.from_dict(data) for data in snapshots_data]
-        except Exception as e:
-            print(f"Error getting snapshots by timeframe: {e}")
-            return []
+            return False

@@ -10,7 +10,7 @@ class BaseExchange:
     def __init__(self) -> None:
         self.exchanges: Dict[str, ccxt.Exchange] = {}
 
-    async def initialize_exchnages(self, apis: Dict[str, Dict[str, str]]) -> None:
+    async def initialize_exchanges(self, apis: Dict[str, Dict[str, str]]) -> None:
         """
         apis: Dict[str, Dict[str, str]]
         {
@@ -38,8 +38,11 @@ class BaseExchange:
         exchange_classes = {
             "binance": ccxt.binance,
             "okx": ccxt.okx,
+            "bybit": ccxt.bybit,
+            "bitget": ccxt.bitget,
             "mexc": ccxt.mexc,
             "gateio": ccxt.gateio,
+            "bitopro": ccxt.bitopro
         }
 
         default_config = {
@@ -75,6 +78,21 @@ class BaseExchange:
                     "password": settings.OKX_PASSWORD,
                 },
             ),
+            "bybit": (
+                ccxt.bybit,
+                {
+                    "apiKey": settings.BYBIT_API_KEY,
+                    "secret": settings.BYBIT_SECRET,
+                }
+            ),
+            "bitget": (
+                ccxt.bitget,
+                {
+                    "apiKey": settings.BITGET_API_KEY,
+                    "secret": settings.BITGET_SECRET,
+                    "password": settings.BITGET_PASSWORD,
+                }
+            ),
             "mexc": (
                 ccxt.mexc,
                 {
@@ -89,6 +107,13 @@ class BaseExchange:
                     "secret": settings.GATEIO_SECRET,
                 },
             ),
+            "bitopro": (
+                ccxt.bitopro,
+                {
+                    "apiKey": settings.BITOPRO_API_KEY,
+                    "secret": settings.BITOPRO_SECRET,
+                }
+            )
         }
 
         default_config = {

@@ -1,8 +1,9 @@
 from typing import Optional
 
 from app.database.connection import MongoDB
+from app.database.asset import AssetDB
+from app.database.asset_cost import AssetCostDB
 from app.database.asset_history import AssetHistoryDB
-from app.services.currency_service import CurrencyService
 from app.services.websocket_service import WebSocketService
 from app.services.asset_history_service import AssetHistoryService
 from app.services.exchange.base_exchange import BaseExchange
@@ -13,16 +14,47 @@ from app.services.exchange.transfer_service import TransferService
 
 
 class ServiceManager:
+    # database services
+    _asset_db: Optional[AssetDB] = None
+    _asset_cost_db: Optional[AssetCostDB] = None
+    _asset_history_db: Optional[AssetHistoryDB] = None
+
+    # exchange services (need api)
     _base_exchange: Optional[BaseExchange] = None
     _quote_service: Optional[QuoteService] = None
     _wallet_service: Optional[WalletService] = None
     _trading_service: Optional[TradingService] = None
     _transfer_service: Optional[TransferService] = None
-    _asset_history_db: Optional[AssetHistoryDB] = None
+
+    # other services
     _asset_processor: Optional[AssetHistoryService] = None
-    _currency_service: Optional[CurrencyService] = None
     _websocket_service: Optional[WebSocketService] = None
 
+
+    # database services getters
+    @classmethod
+    def get_asset_db(cls) -> AssetDB:
+        if cls._asset_db is None:
+            mongo_client = MongoDB.get_client()
+            cls._asset_db = AssetDB(mongo_client)
+        return cls._asset_db
+    
+    @classmethod
+    def get_asset_cost_db(cls) -> AssetCostDB:
+        if cls._asset_cost_db is None:
+            mongo_client = MongoDB.get_client()
+            cls._asset_cost_db = AssetCostDB(mongo_client)
+        return cls._asset_cost_db
+
+    @classmethod
+    def get_asset_history_db(cls) -> AssetHistoryDB:
+        if cls._asset_history_db is None:
+            mongo_client = MongoDB.get_client()
+            cls._asset_history_db = AssetHistoryDB(mongo_client)
+        return cls._asset_history_db
+
+
+    # exchange services getters
     @classmethod
     def get_base_exchange(cls) -> BaseExchange:
         if cls._base_exchange is None:
@@ -51,30 +83,26 @@ class ServiceManager:
     def get_wallet_service(cls) -> WalletService:
         if cls._wallet_service is None:
             cls._wallet_service = WalletService(
-                cls.get_quote_service(), cls.get_trading_service()
+                cls.get_quote_service(), 
+                cls.get_trading_service(),
+                cls.get_asset_db(),
+                cls.get_asset_cost_db(),
+                cls.get_asset_history_db()
             )
         return cls._wallet_service
 
-    @classmethod
-    def get_asset_history_db(cls) -> AssetHistoryDB:
-        if cls._asset_history_db is None:
-            mongo_client = MongoDB.get_client()
-            cls._asset_history_db = AssetHistoryDB(mongo_client)
-        return cls._asset_history_db
 
+    # other services getters
     @classmethod
-    def get_asset_processor(cls) -> AssetHistoryService:
+    def get_asset_history_service(cls) -> AssetHistoryService:
         if cls._asset_processor is None:
             cls._asset_processor = AssetHistoryService(
-                cls.get_wallet_service(), cls.get_asset_history_db()
+                cls.get_wallet_service(), 
+                cls.get_asset_db(),
+                cls.get_asset_history_db(),
+                
             )
         return cls._asset_processor
-
-    @classmethod
-    def get_currency_service(cls) -> CurrencyService:
-        if cls._currency_service is None:
-            cls._currency_service = CurrencyService()
-        return cls._currency_service
 
     @classmethod
     def get_websocket_service(cls) -> WebSocketService:
@@ -82,29 +110,29 @@ class ServiceManager:
             cls._websocket_service = WebSocketService()
         return cls._websocket_service
 
+
     @classmethod
     async def initialize_services(cls):
         try:
-            # Initialize all required services
+            # Initialize Database Services
+            asset_db = cls.get_asset_db()
+            asset_history_db = cls.get_asset_history_db()
+            asset_cost_db = cls.get_asset_cost_db()
+            
+            # Initialize database indexes
+            await asset_db.create_indexes()
+            await asset_history_db.create_indexes()
+            await asset_cost_db.create_indexes()
+
+            # Initialize exchange services
             base_exchange = cls.get_base_exchange()
             await base_exchange.initialize_exchanges_by_server()
 
             wallet_service = cls.get_wallet_service()
-
-            transfer_service = cls.get_transfer_service()
-
-            asset_history_db = cls.get_asset_history_db()
-
-            # Initialize exchanges in wallet service
             await wallet_service.initialize_exchanges_by_server()
 
+            transfer_service = cls.get_transfer_service()
             await transfer_service.initialize_exchanges_by_server()
-
-            # Initialize database indexes
-            await asset_history_db.create_indexes()
-
-            # Initialize websocket service if needed
-            websocket_service = cls.get_websocket_service()
 
             print("Services initialized successfully")
 

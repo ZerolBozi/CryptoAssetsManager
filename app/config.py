@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     # BITGET API
     BITGET_API_KEY: str
     BITGET_SECRET: str
+    BITGET_PASSWORD: str
 
     # MEXC API
     MEXC_API_KEY: str
@@ -33,6 +34,10 @@ class Settings(BaseSettings):
     # Gate.io API
     GATEIO_API_KEY: str
     GATEIO_SECRET: str
+
+    # BitoPro API
+    BITOPRO_API_KEY: str
+    BITOPRO_SECRET: str
 
     # DB Settings
     MONGODB_URI: str = "mongodb://localhost:27017"

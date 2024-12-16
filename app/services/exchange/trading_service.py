@@ -1,6 +1,6 @@
 import asyncio
 from decimal import Decimal, ROUND_HALF_UP
-from typing import Dict, List, Union
+from typing import Dict, List
 
 import ccxt.async_support as ccxt
 
@@ -134,7 +134,8 @@ class TradingService(BaseExchange):
             )
 
         except Exception as e:
-            raise Exception(f"Failed to place order with cost: {str(e)}")
+            print(e)
+            return {}
 
     async def get_trade_history(
         self, exchange: ccxt.Exchange, symbol: str
@@ -166,4 +167,5 @@ class TradingService(BaseExchange):
             return trades
 
         except Exception as e:
+            print(e)
             return []

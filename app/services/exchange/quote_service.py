@@ -85,6 +85,22 @@ class QuoteService(BaseExchange):
 
         except Exception as e:
             return {"error": str(e)}
+        
+    async def get_close_price_from_history(
+        self, exchange: ccxt.Exchange, symbol: str, timeframe: str, since: int, end: int
+    ) -> Dict[int, Decimal]:
+        
+        try:
+            price_history = await self.get_price_history(
+                exchange, symbol, timeframe, since, end
+            )
+            if "error" in price_history:
+                return {}
+
+            return {candle["timestamp"]: Decimal(str(candle["close"])) for candle in price_history["data"]}
+        except Exception as e:
+            print(e)
+            return {}
 
     async def get_last_close_price_from_history(
         self, exchange: ccxt.Exchange, symbol: str, timeframe: str, since: int, end: int
@@ -111,6 +127,7 @@ class QuoteService(BaseExchange):
 
             return Decimal(str(price_history["data"][-1]["close"]))
         except Exception as e:
+            print(e)
             return Decimal(0)
 
     async def get_current_price(self, exchange: ccxt.Exchange, symbol: str) -> Decimal:

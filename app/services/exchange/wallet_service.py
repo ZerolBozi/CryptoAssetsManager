@@ -4,96 +4,117 @@ from typing import Dict, Optional, Union
 
 import ccxt.async_support as ccxt
 
-from app.structures.asset_structure import Balance, AssetsData
+from app.database.asset import AssetDB
+from app.database.asset_cost import AssetCostDB
+from app.database.asset_history import AssetHistoryDB
+from app.structures.asset_structure import Asset, AssetSummary
 from app.services.exchange.base_exchange import BaseExchange
 from app.services.exchange.quote_service import QuoteService
 from app.services.exchange.trading_service import TradingService
 
 
 class WalletService(BaseExchange):
-    def __init__(self, quote_service: QuoteService, trading_service: TradingService):
+    def __init__(
+            self, 
+            quote_service: QuoteService, 
+            trading_service: TradingService,
+            asset_db: AssetDB,
+            asset_cost_db: AssetCostDB,
+            asset_history_db: AssetHistoryDB
+        ) -> None:
         super().__init__()
         self.quote_service = quote_service
         self.trading_service = trading_service
+        self.asset_db = asset_db
+        self.asset_cost_db = asset_cost_db
+        self.asset_history_db = asset_history_db
 
     async def __process_symbol(
-        self, exchange: ccxt.Exchange, symbol: str, balance: dict, timestamp: int = None
-    ) -> Optional[Balance]:
+        self, 
+        exchange: ccxt.Exchange, 
+        symbol: str, 
+        balance: dict, 
+        timestamp: int = None
+    ) -> Optional[Asset]:
         try:
             total_amount = Decimal(str(balance["total"][symbol]))
 
             if total_amount <= Decimal("0"):
                 return None
 
-            if symbol == "USDT":
-                return Balance(
+            asset: Optional[Asset] = None
+
+            if (symbol == "USDT") or (symbol == "USDC"):
+                asset = Asset.calculate_metrics(
+                    exchange=exchange.id,
+                    symbol=symbol,
                     free=Decimal(balance["free"][symbol]),
                     used=Decimal(balance["used"][symbol]),
                     total=total_amount,
                     avg_price=Decimal("1"),
-                    current_price=Decimal("1"),
-                    roi=Decimal("0"),
-                    value_in_usdt=total_amount,
-                    profit_usdt=Decimal("0"),
+                    current_price=Decimal("1")
                 )
 
-            _symbol = f"{symbol}/USDT"
-
-            if not exchange.has["fetchTicker"]:
-                return None
-
-            if timestamp is None:
-                price_task = self.quote_service.get_current_price(exchange, _symbol)
             else:
-                price_task = self.quote_service.get_last_close_price_from_history(
-                    exchange, _symbol, "1d", timestamp, timestamp
+                _symbol = f"{symbol}/USDT"
+                asset_cost = await self.asset_cost_db.get_asset_cost(
+                    exchange=exchange.id,
+                    symbol=symbol
                 )
+                
+                if timestamp is None:
+                    current_price = await self.quote_service.get_current_price(exchange, _symbol)
+                else:
+                    current_price = await self.quote_service.get_last_close_price_from_history(
+                        exchange, _symbol, "1d", timestamp, timestamp
+                    )
 
-            trades_task = self.trading_service.get_trade_history(exchange, _symbol)
+                if asset_cost is not None:
+                    avg_price = Decimal(str(asset_cost["avg_price"]))
+                else:
+                    trades = await self.trading_service.get_trade_history(exchange, _symbol)
 
-            current_price, trades = await asyncio.gather(price_task, trades_task)
-
-            if (not current_price) or (not trades):
-                return None
-
-            value_in_usdt: Decimal = total_amount * current_price
-            cost = Decimal("0")
-            amount = Decimal("0")
-            avg_price = Decimal("0")
-
-            if trades:
-                for trade in trades:
-                    if trade["side"] == "buy":
-                        cost += Decimal(str(trade["cost"]))
-                        amount += Decimal(str(trade["amount"]))
+                    if trades:
+                        cost = Decimal("0")
+                        amount = Decimal("0")
+                        for trade in trades:
+                            if trade["side"] == "buy":
+                                cost += Decimal(str(trade["cost"]))
+                                amount += Decimal(str(trade["amount"]))
+                            else:
+                                cost -= Decimal(str(trade["cost"]))
+                                amount -= Decimal(str(trade["amount"]))
+                        avg_price = cost / amount if amount else current_price
                     else:
-                        cost -= Decimal(str(trade["cost"]))
-                        amount -= Decimal(str(trade["amount"]))
+                        avg_price = current_price
 
-                avg_price = cost / amount if amount else current_price
-            else:
-                avg_price = current_price
+                    await self.asset_cost_db.update_asset_cost(
+                        exchange=exchange.id,
+                        symbol=symbol,
+                        avg_price=avg_price,
+                        update_by="Server"
+                    )
 
-            roi = (
-                (((current_price - avg_price) / avg_price) * Decimal("100"))
-                if avg_price
-                else Decimal("0")
-            )
+                asset = Asset.calculate_metrics(
+                    exchange=exchange.id,
+                    symbol=symbol,
+                    free=Decimal(balance["free"][symbol]),
+                    used=Decimal(balance["used"][symbol]),
+                    total=total_amount,
+                    avg_price=avg_price,
+                    current_price=current_price
+                )
 
-            profit_usdt = (current_price - avg_price) * total_amount
+            if asset:
+                await self.asset_db.update_asset(
+                    exchange=exchange.id,
+                    symbol=symbol,
+                    data=asset.model_dump_for_db()
+                )
 
-            return Balance(
-                free=Decimal(balance["free"][symbol]),
-                used=Decimal(balance["used"][symbol]),
-                total=total_amount,
-                avg_price=avg_price,
-                current_price=current_price,
-                roi=roi,
-                value_in_usdt=value_in_usdt,
-                profit_usdt=profit_usdt,
-            )
-
+            return asset
         except Exception as e:
+            print(e)
             return None
 
     async def __get_okx_balance(self, exchange: ccxt.Exchange) -> dict:
@@ -117,7 +138,7 @@ class WalletService(BaseExchange):
 
     async def get_balance(
         self, exchange: ccxt.Exchange, timestamp: int = None
-    ) -> Dict[str, Union[Balance, str]]:
+    ) -> Dict[str, Union[Asset, str]]:
         """
         Get spot balance from an exchange.
 
@@ -152,7 +173,7 @@ class WalletService(BaseExchange):
 
     async def get_assets(
         self, min_value: Decimal = Decimal("1"), timestamp: int = None
-    ) -> AssetsData:
+    ) -> Dict[str, Union[Dict[str, Asset], AssetSummary]]:
         """
         Get assets data from all exchanges.
 
@@ -175,12 +196,10 @@ class WalletService(BaseExchange):
             results = await asyncio.gather(*(task[1] for task in tasks))
             exchanges_data = {}
 
-            assets_summary = {
-                "total": Decimal("0"),
-                "profit": Decimal("0"),
-                "initial": Decimal("0"),
-                "roi": Decimal("0"),
-            }
+            total = Decimal("0")
+            profit = Decimal("0")
+            initial = Decimal("0")
+
 
             for exchange_name, result in zip([t[0] for t in tasks], results):
                 if "error" in result:
@@ -189,26 +208,25 @@ class WalletService(BaseExchange):
                 filtered_result = {}
 
                 for symbol, balance in result.items():
-                    if (balance.value_in_usdt >= min_value) or (symbol == "USDT"):
-                        filtered_result[symbol] = balance
-                    assets_summary["total"] += balance.value_in_usdt
-                    assets_summary["profit"] += balance.profit_usdt
-                    assets_summary["initial"] += balance.total * balance.avg_price
+                    if (balance.value_in_usdt >= min_value) or (symbol == "USDT") or (symbol == "USDC"):
+                        filtered_result[symbol] = balance.model_dump()
+                    total += balance.value_in_usdt
+                    profit += balance.profit_usdt
+                    initial += balance.total * balance.avg_price
 
                 exchanges_data[exchange_name] = filtered_result
 
-            assets_summary["roi"] = (
-                (
-                    (assets_summary["profit"] / assets_summary["initial"])
-                    * Decimal("100")
-                )
-                if assets_summary["initial"]
-                else Decimal("0")
+            summary = AssetSummary.calculate_summary(
+                total=total,
+                profit=profit,
+                initial=initial
             )
+
+            await self.asset_history_db.update_history(summary.model_dump_for_db())
 
             return {
                 "exchanges": exchanges_data,
-                "summary": assets_summary,
+                "summary": summary.model_dump(),
             }
 
         except Exception as e:
