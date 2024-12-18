@@ -1,4 +1,4 @@
-from typing import Dict
+from typing import Dict, Any
 from pydantic import BaseModel, Field
 
 class AssetCostUpdate(BaseModel):
@@ -12,3 +12,9 @@ class ExchangeAPISettings(BaseModel):
 
 class ExchangeSettingsUpdate(BaseModel):
     exchanges: Dict[str, ExchangeAPISettings]
+
+class ChartSaveRequest(BaseModel):
+    name: str = Field(..., description="Chart name")
+    symbol: str = Field(..., description="Trading symbol")
+    content: str = Field(..., description="Chart configuration content")
+    resolution: str = Field(..., description="Chart resolution")

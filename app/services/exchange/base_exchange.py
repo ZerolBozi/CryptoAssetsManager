@@ -134,6 +134,7 @@ class BaseExchange:
             await exchange.fetch_balance()
             return True
         except Exception as e:
+            print(e)
             return False
 
     async def ping_exchanges(self) -> Optional[Dict[str, Union[bool, str]]]:
@@ -154,4 +155,5 @@ class BaseExchange:
                 name: result for name, result in zip(self.exchanges.keys(), results)
             }
         except Exception as e:
+            print(e)
             return None

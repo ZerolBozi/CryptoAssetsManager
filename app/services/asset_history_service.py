@@ -188,27 +188,12 @@ class AssetHistoryService:
 
     async def update_daily_snapshot(self, timestamp: Optional[int] = None) -> bool:
         try:
-            current_time = int(datetime.now(timezone.utc).timestamp() * 1000)
-            daily_timestamp = timestamp or self.__convert_to_daily_timestamp(current_time)
+            if timestamp is None:
+                timestamp = self.__convert_to_daily_timestamp(int(datetime.now(timezone.utc).timestamp() * 1000))
 
-            if daily_timestamp < self.__convert_to_daily_timestamp(current_time):
-                return False
-
-            assets = await self.get_current_assets()
-            if not assets or "error" in assets:
-                return False
-
-            summary = assets.get("summary")
-            if not summary:
-                return False
-
-            snapshot = {
-                "timestamp": daily_timestamp,
-                "update_time": current_time,
-                **{k: str(v) if isinstance(v, Decimal) else v for k, v in summary.items()}
-            }
-
-            return await self.asset_history_db.update_history(snapshot)
+            assets = await self.wallet_service.get_assets(timestamp=timestamp)
+            
+            return (assets) or ("error" not in assets)
 
         except Exception as e:
             print(f"Error updating daily snapshot: {e}")

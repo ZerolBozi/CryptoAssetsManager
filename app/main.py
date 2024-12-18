@@ -1,3 +1,5 @@
+import os
+import json
 from decimal import Decimal
 from contextlib import asynccontextmanager
 from typing import Dict, Optional
@@ -5,7 +7,7 @@ from datetime import datetime, timezone, timedelta
 
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi import FastAPI, HTTPException, Query, WebSocket
+from fastapi import FastAPI, HTTPException, Query, Body, WebSocket, WebSocketDisconnect
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.events import EVENT_JOB_EXECUTED, EVENT_JOB_ERROR
 
@@ -13,7 +15,7 @@ from app.config import settings
 from app.database.connection import MongoDB
 from app.services.service_manager import ServiceManager
 from app.structures.response_structure import BaseResponse, BaseDataResponse
-from app.structures.request_structure import AssetCostUpdate, ExchangeSettingsUpdate
+from app.structures.request_structure import AssetCostUpdate, ExchangeSettingsUpdate, ChartSaveRequest
 
 # 快取週期
 CACHE_TTL = 60000
@@ -382,78 +384,238 @@ async def get_deposit_address(exchange: str, symbol: str, network: str) -> BaseD
         raise HTTPException(
             status_code=500, detail=f"Failed to get deposit address: {str(e)}"
         )
-
-
-@app.get(f"{settings.API_PREFIX}/ping_ws")
-async def ping_websocket() -> Dict[str, str]:
-    """
-    Check if WebSocket service is running.
-    """
+    
+@app.post(f"{settings.API_PREFIX}/charts/save")
+async def save_chart(data: ChartSaveRequest) -> BaseResponse:
     try:
-        ws_service = ServiceManager.get_websocket_service()
-        if ws_service.is_running:
-            return {"status": "success", "message": "WebSocket service is running"}
-        else:
-            return {"status": "inactive", "message": "WebSocket service is not running"}
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Error checking WebSocket status: {str(e)}"
+        chart_storage_db = ServiceManager.get_chart_storage_db()
+        success = await chart_storage_db.save_chart(
+            name=data.name,
+            content=data.content,
+            symbol=data.symbol,
+            resolution=data.resolution
         )
 
-
-@app.post(f"{settings.API_PREFIX}/connect_ws")
-async def connect_websocket() -> Dict[str, str]:
-    """
-    Initialize and start WebSocket service.
-    """
-    try:
-        ws_service = ServiceManager.get_websocket_service()
-        if not ws_service.is_running:
-            await ws_service.initialize()
-            await ws_service.start_watching()
-            return {
-                "status": "success",
-                "message": "WebSocket service started successfully",
-            }
-        return {"status": "success", "message": "WebSocket service is already running"}
+        if success:
+            return BaseResponse(
+                status="success",
+                message="Chart saved successfully"
+            )
+        return BaseResponse(
+            status="error",
+            message="Failed to save chart"
+        )
     except Exception as e:
         raise HTTPException(
-            status_code=500, detail=f"Failed to start WebSocket service: {str(e)}"
+            status_code=500, 
+            detail=f"Failed to save chart: {str(e)}"
         )
 
-
-@app.post(f"{settings.API_PREFIX}/disconnect_ws")
-async def disconnect_websocket() -> Dict[str, str]:
-    """
-    Stop WebSocket service and disconnect all clients.
-    """
+@app.get(f"{settings.API_PREFIX}/charts/load")
+async def load_chart(
+    id: int = Query(..., description="Chart id")
+) -> BaseDataResponse:
     try:
-        ws_service = ServiceManager.get_websocket_service()
-        if ws_service.is_running:
-            await ws_service.stop()
-            return {
-                "status": "success",
-                "message": "WebSocket service stopped successfully",
-            }
-        return {"status": "success", "message": "WebSocket service is already stopped"}
+        chart_storage_db = ServiceManager.get_chart_storage_db()
+        chart = await chart_storage_db.get_chart(
+            id=id
+        )
+
+        if not chart:
+            return BaseDataResponse(
+                status="error",
+                data=None
+            )
+
+        return BaseDataResponse(
+            status="success",
+            data=chart
+        )
     except Exception as e:
         raise HTTPException(
-            status_code=500, detail=f"Failed to stop WebSocket service: {str(e)}"
+            status_code=500, 
+            detail=f"Failed to load chart: {str(e)}"
         )
 
-
-@app.websocket("/ws/klines")
-async def websocket_endpoint(websocket: WebSocket):
+@app.get(f"{settings.API_PREFIX}/charts/list")
+async def list_charts() -> BaseDataResponse:
     """
-    WebSocket endpoint for kline data streaming
+    List all saved charts
     """
-    ws_service = ServiceManager.get_websocket_service()
-    if not ws_service.is_running:
-        await websocket.close(code=1000, reason="WebSocket service is not running")
-        return
+    try:
+        chart_storage_db = ServiceManager.get_chart_storage_db()
+        charts = await chart_storage_db.get_all_charts()
 
-    await ws_service.register_client(websocket)
+        return BaseDataResponse(
+            status="success",
+            data=charts
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Failed to list charts: {str(e)}"
+        )
 
+@app.delete(f"{settings.API_PREFIX}/charts/delete")
+async def delete_chart(
+    id: int = Query(..., description="Chart id")
+) -> BaseResponse:
+    """
+    Delete chart configuration
+    """
+    try:
+        chart_storage_db = ServiceManager.get_chart_storage_db()
+        success = await chart_storage_db.delete_chart(id=id)
+
+        if success:
+            return BaseResponse(
+                status="success",
+                message="Chart deleted successfully"
+            )
+        return BaseResponse(
+            status="error",
+            message="Failed to delete chart"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Failed to delete chart: {str(e)}"
+        )
+
+@app.get(f"{settings.API_PREFIX}/quotes/symbols")
+async def get_symbols(
+    min_value: Optional[float] = Query(
+        default=1, description="Minimum value threshold in USDT"
+    )
+) -> BaseDataResponse:
+    try:
+        trading_symbols = []
+        
+        asset_db = ServiceManager.get_asset_db()
+        assets = await asset_db.get_all_assets()
+        
+        for asset in assets:
+            if Decimal(asset.get("value_in_usdt", "0")) >= min_value and (asset['symbol'] != "USDT" and asset['symbol'] != "USDC"):
+                symbol = f"{asset['symbol']}USDT"
+                trading_symbols.append({
+                    "symbol": symbol,
+                    "full_name": f"{asset['exchange'].upper()}:{symbol}",
+                    "description": f"{asset['symbol']} / Tether",
+                    "exchange": asset['exchange'].upper(),
+                    "type": "balance"
+                })
+        
+        try:
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            root_dir = os.path.dirname(os.path.dirname(current_dir))
+            services_dir = os.path.join(root_dir, "CryptoAssetsManager")
+            file_path = os.path.join(services_dir, "symbol_exchange_mapping.json")
+            with open(file_path, "r") as f:
+                mapping_data = json.load(f)
+                
+            for exchange, symbols in mapping_data.items():
+                if exchange == "Upbit":
+                    continue
+
+                for symbol in symbols:
+                    symbol_with_usdt = f"{symbol}USDT"
+                    existing = next(
+                        (item for item in trading_symbols 
+                         if item["symbol"] == symbol_with_usdt and 
+                         item["exchange"] == exchange.upper()),
+                        None
+                    )
+                    
+                    if not existing:
+                        trading_symbols.append({
+                            "symbol": symbol_with_usdt,
+                            "full_name": f"{exchange.upper()}:{symbol_with_usdt}",
+                            "description": f"{symbol} / Tether",
+                            "exchange": exchange.upper(),
+                            "type": "watch list"
+                        })
+        
+        except FileNotFoundError:
+            print("Symbol mapping file not found")
+            
+        return BaseDataResponse(
+            status="success",
+            data=trading_symbols
+        )
+        
+    except Exception as e:
+        print(f"Error getting trading symbols: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get trading symbols: {str(e)}"
+        )
+    
+@app.get(f"{settings.API_PREFIX}/quotes/history")
+async def get_quote_history(
+    symbol: str = Query(..., description="Trading pair symbol"),
+    exchange: str = Query(..., description="Exchange name"),
+    timeframe: str = Query(..., description="Timeframe"),
+    since: int = Query(..., description="Start timestamp in milliseconds"),
+    end: int = Query(..., description="End timestamp in milliseconds"),
+) -> BaseDataResponse:
+    """
+    Get historical price data for a symbol from an exchange.
+    Parameters:
+        symbol: Trading pair symbol (e.g. 'BTC/USDT')
+        exchange: Exchange name (e.g. 'binance')
+        timeframe: Timeframe (e.g. '1d')
+        since: Start timestamp (milliseconds)
+        end: End timestamp (milliseconds)
+    Returns:
+        Dict with historical price data
+    """
+    try:
+        quote_service = ServiceManager.get_quote_service()
+        exchange = quote_service.exchanges.get(exchange)
+        history = await quote_service.get_price_history(
+            exchange, symbol, timeframe, since, end
+        )
+
+        return BaseDataResponse(
+            status="success",
+            data=history['data']
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get quote history: {str(e)}"
+        )
+
+@app.websocket("/ws/quotes/{data_type}/{exchange}/{symbol}")
+async def websocket_endpoint(
+    websocket: WebSocket,
+    data_type: str,
+    exchange: str, 
+    symbol: str,
+    timeframe: str = Query(default="1m")
+) -> None:
+    websocket_service = ServiceManager.get_websocket_service()
+    try:
+        await websocket_service.connect(websocket)
+        
+        await websocket_service.subscribe(
+            exchange_name=exchange,
+            symbol=symbol, 
+            websocket=websocket,
+            data_type=data_type,
+            timeframe=timeframe
+        )
+        
+        while True:
+            try:
+                await websocket.receive_text()
+            except WebSocketDisconnect:
+                break
+            
+    except Exception as e:
+        print(f"WebSocket error: {str(e)}")
+        
+    finally:
+        await websocket_service.disconnect(websocket)
 
 # Error handlers
 @app.exception_handler(Exception)

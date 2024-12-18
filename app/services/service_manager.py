@@ -4,6 +4,7 @@ from app.database.connection import MongoDB
 from app.database.asset import AssetDB
 from app.database.asset_cost import AssetCostDB
 from app.database.asset_history import AssetHistoryDB
+from app.database.chart_storage import ChartStorageDB
 from app.services.websocket_service import WebSocketService
 from app.services.asset_history_service import AssetHistoryService
 from app.services.exchange.base_exchange import BaseExchange
@@ -18,6 +19,7 @@ class ServiceManager:
     _asset_db: Optional[AssetDB] = None
     _asset_cost_db: Optional[AssetCostDB] = None
     _asset_history_db: Optional[AssetHistoryDB] = None
+    _chart_storage_db: Optional[ChartStorageDB] = None
 
     # exchange services (need api)
     _base_exchange: Optional[BaseExchange] = None
@@ -52,6 +54,13 @@ class ServiceManager:
             mongo_client = MongoDB.get_client()
             cls._asset_history_db = AssetHistoryDB(mongo_client)
         return cls._asset_history_db
+    
+    @classmethod
+    def get_chart_storage_db(cls) -> ChartStorageDB:
+        if cls._chart_storage_db is None:
+            mongo_client = MongoDB.get_client()
+            cls._chart_storage_db = ChartStorageDB(mongo_client)
+        return cls._chart_storage_db
 
 
     # exchange services getters
@@ -118,11 +127,13 @@ class ServiceManager:
             asset_db = cls.get_asset_db()
             asset_history_db = cls.get_asset_history_db()
             asset_cost_db = cls.get_asset_cost_db()
+            chart_storage_db = cls.get_chart_storage_db()
             
             # Initialize database indexes
             await asset_db.create_indexes()
             await asset_history_db.create_indexes()
             await asset_cost_db.create_indexes()
+            await chart_storage_db.create_indexes()
 
             # Initialize exchange services
             base_exchange = cls.get_base_exchange()
@@ -133,6 +144,9 @@ class ServiceManager:
 
             transfer_service = cls.get_transfer_service()
             await transfer_service.initialize_exchanges_by_server()
+
+            quote_service = cls.get_quote_service()
+            await quote_service.initialize_exchanges_by_server()
 
             print("Services initialized successfully")
 

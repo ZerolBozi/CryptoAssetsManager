@@ -11,6 +11,13 @@ class QuoteService(BaseExchange):
     def __init__(self):
         super().__init__()
 
+    def __process_symbol(self, symbol: str, exchange_name: str) -> str:
+        if exchange_name in ['okx', 'bitopro']:
+            symbol = symbol.replace('USDT', '/USDT')
+            symbol = symbol.replace('USDC', '/USDC')
+            return symbol
+        return symbol
+
     async def get_price_history(
         self, exchange: ccxt.Exchange, symbol: str, timeframe: str, since: int, end: int
     ) -> Dict[str, Union[str, list]]:
@@ -51,6 +58,7 @@ class QuoteService(BaseExchange):
         }
 
         try:
+            symbol = self.__process_symbol(symbol, exchange.id)
             adjusted_end = end + timeframe_map[timeframe]
             periods = (adjusted_end - since) // timeframe_map[timeframe]
             chunks = [(periods // 1000) + (1 if periods % 1000 else 0)]
