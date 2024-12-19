@@ -7,7 +7,7 @@ from datetime import datetime, timezone, timedelta
 
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi import FastAPI, HTTPException, Query, Body, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.events import EVENT_JOB_EXECUTED, EVENT_JOB_ERROR
 
@@ -383,6 +383,28 @@ async def get_deposit_address(exchange: str, symbol: str, network: str) -> BaseD
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Failed to get deposit address: {str(e)}"
+        )
+    
+@app.get(f"{settings.API_PREFIX}/charts/latest")
+async def get_latest_chart() -> BaseDataResponse:
+    try:
+        chart_storage_db = ServiceManager.get_chart_storage_db()
+        chart = await chart_storage_db.get_latest_chart()
+
+        if not chart:
+            return BaseDataResponse(
+                status="error",
+                data=None
+            )
+
+        return BaseDataResponse(
+            status="success",
+            data=chart
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Failed to get latest chart: {str(e)}"
         )
     
 @app.post(f"{settings.API_PREFIX}/charts/save")

@@ -55,6 +55,23 @@ class ChartStorageDB(MongoDBBase):
             print(f"Error saving chart: {e}")
             return False
         
+    async def get_latest_chart(self) -> Optional[Dict]:
+        charts = await self.find_many(
+            projection={
+                "_id": 0,
+                "id": 1,
+                "name": 1,
+                "content": 1,
+                "symbol": 1,
+                "timestamp": 1,
+                "resolution": 1
+            },
+            sort=[("timestamp", -1)],
+            limit=1
+        )
+
+        return charts[0] if charts else None
+        
     async def get_chart(
         self,
         id: int

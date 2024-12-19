@@ -28,9 +28,13 @@ class AssetHistoryDB(MongoDBBase):
         )
 
     async def get_latest_snapshot(self) -> Optional[Dict]:
-        return await self.find_one(
+        snapshots = await self.find_many(
             projection={"_id": 0},
+            sort=[("timestamp", -1)],
+            limit=1
         )
+        
+        return snapshots[0] if snapshots else None
 
     async def get_snapshots_by_timeframe(
         self, 

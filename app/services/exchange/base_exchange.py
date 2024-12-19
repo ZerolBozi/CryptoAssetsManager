@@ -131,6 +131,9 @@ class BaseExchange:
         Ping an exchange to check connection status.
         """
         try:
+            # API檢查的部分會很久, 底下這幾種都是檢查的方式, 但是速度很慢, 跟交易所的伺服器有關
+            # 測試下來其實不管用什麼方法速度都差不多, 沒有特別快的辦法了
+            # await exchange.fetch_deposit_withdraw_fees("BTC")
             await exchange.fetch_balance()
             return True
         except Exception as e:

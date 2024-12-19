@@ -44,7 +44,7 @@ class WalletService(BaseExchange):
 
             asset: Optional[Asset] = None
 
-            if (symbol == "USDT") or (symbol == "USDC"):
+            if symbol in ["USDT", "USDC"]:
                 asset = Asset.calculate_metrics(
                     exchange=exchange.id,
                     symbol=symbol,
@@ -208,7 +208,7 @@ class WalletService(BaseExchange):
                 filtered_result = {}
 
                 for symbol, balance in result.items():
-                    if (balance.value_in_usdt >= min_value) or (symbol == "USDT") or (symbol == "USDC"):
+                    if (balance.value_in_usdt >= min_value) or (symbol in ["USDT", "USDC"]):
                         filtered_result[symbol] = balance.model_dump()
                     total += balance.value_in_usdt
                     profit += balance.profit_usdt
