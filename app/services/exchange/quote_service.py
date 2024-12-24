@@ -1,4 +1,3 @@
-import asyncio
 from decimal import Decimal
 from typing import Dict, Union, List
 
@@ -154,6 +153,7 @@ class QuoteService(BaseExchange):
             price = Decimal(ticker.get("last", Decimal(0)))
             return price
         except Exception as e:
+            print(e)
             return Decimal(0)
 
     async def get_current_prices(
@@ -174,4 +174,5 @@ class QuoteService(BaseExchange):
             prices = {k: Decimal(str(v.get("last", "0"))) for k, v in tickers.items()}
             return prices
         except Exception as e:
+            print(e)
             return Decimal(0)

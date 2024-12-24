@@ -2,7 +2,7 @@ import os
 import json
 from decimal import Decimal
 from contextlib import asynccontextmanager
-from typing import Dict, Optional
+from typing import Optional
 from datetime import datetime, timezone, timedelta
 
 from fastapi.staticfiles import StaticFiles

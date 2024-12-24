@@ -203,7 +203,7 @@ class WebSocketService:
                             websockets_to_remove.add(websocket)
                     
                     for ws in websockets_to_remove:
-                        await self.unsubscribe(exchange_id, symbol, ws, 'aggTrade')
+                        await self.unsubscribe(exchange_name, symbol, ws, 'aggTrade')
                         
         except Exception as e:
             print(f"Error in {exchange_name} aggTrade loop for {symbol}: {str(e)}")

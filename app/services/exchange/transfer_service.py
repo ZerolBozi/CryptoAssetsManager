@@ -1,5 +1,4 @@
 import re
-import asyncio
 from typing import Dict, Optional
 
 import ccxt.async_support as ccxt
@@ -69,6 +68,7 @@ class TransferService(BaseExchange):
             return networks
 
         except Exception as e:
+            print(e)
             return {}
 
     async def get_deposit_address(
@@ -100,6 +100,7 @@ class TransferService(BaseExchange):
             }
 
         except Exception as e:
+            print(e)
             return {}
 
     async def withdraw(

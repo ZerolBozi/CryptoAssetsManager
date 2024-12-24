@@ -1,7 +1,6 @@
 from typing import Dict, List, Optional
 from datetime import datetime, timezone
 
-from pymongo import UpdateOne
 from motor.motor_asyncio import AsyncIOMotorClient
 
 from .base import MongoDBBase
