@@ -5,10 +5,9 @@ WORKDIR /app
 COPY pyproject.toml .
 COPY run.py .
 COPY app/ ./app/
+COPY .env /app/.env
 
-RUN pip install --no-cache-dir uv && \
-    uv venv && \
-    uv pip install .
+RUN pip install -e .
 
 EXPOSE 5001
 
