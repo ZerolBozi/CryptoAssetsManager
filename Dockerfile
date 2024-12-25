@@ -3,11 +3,15 @@ FROM python:3.12-slim
 WORKDIR /app
 
 COPY pyproject.toml .
+
+# Install project dependencies
+RUN pip install --no-cache-dir -e .
+
 COPY run.py .
 COPY app/ ./app/
-COPY .env /app/.env
+COPY .env .
 
-RUN pip install -e .
+RUN mkdir -p /data/db
 
 EXPOSE 5001
 
