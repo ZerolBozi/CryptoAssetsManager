@@ -4,14 +4,12 @@ WORKDIR /app
 
 COPY pyproject.toml .
 
-# Install project dependencies
 RUN pip install --no-cache-dir -e .
 
 COPY run.py .
 COPY app/ ./app/
 COPY .env .
-
-RUN mkdir -p /data/db
+COPY symbol_exchange_mapping.json .
 
 EXPOSE 5001
 

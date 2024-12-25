@@ -1,4 +1,5 @@
 from typing import Dict
+from typing import Optional
 from pydantic import BaseModel, Field
 
 class AssetCostUpdate(BaseModel):
@@ -18,3 +19,25 @@ class ChartSaveRequest(BaseModel):
     symbol: str = Field(..., description="Trading symbol")
     content: str = Field(..., description="Chart configuration content")
     resolution: str = Field(..., description="Chart resolution")
+
+class OpenOrderRequest(BaseModel):
+    exchange: str
+    symbol: str
+    side: str  # buy or sell
+    order_type: str  # market or limit
+    cost: float  # cost in quote currency (e.g. USDT)
+    price: Optional[float] = None  # limit price, optional for market orders
+
+class CloseOrderRequest(BaseModel):
+    exchange: str
+    symbol: str
+    order_type: str  # market or limit
+    price: Optional[float] = None
+
+class TransferRequest(BaseModel):
+    from_exchange: str
+    to_exchange: str
+    currency: str
+    from_address: str
+    amount: float
+    network: str

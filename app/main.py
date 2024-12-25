@@ -15,8 +15,10 @@ from app.config import settings
 from app.database.connection import MongoDB
 from app.services.service_manager import ServiceManager
 from app.structures.response_structure import BaseResponse, BaseDataResponse
-from app.structures.request_structure import AssetCostUpdate, ExchangeSettingsUpdate, ChartSaveRequest
-
+from app.structures.request_structure import (
+    AssetCostUpdate, ExchangeSettingsUpdate, ChartSaveRequest, 
+    OpenOrderRequest, TransferRequest
+)
 # 快取週期
 CACHE_TTL = 60000
 
@@ -333,6 +335,134 @@ async def get_usdt_twd_rate() -> BaseDataResponse:
         raise HTTPException(status_code=503, detail=f"Could not fetch exchange rate: {str(e)}")
 
 
+@app.get(f"{settings.API_PREFIX}/orders")
+async def get_orders(
+        exchange: Optional[str] = Query(default=None, description="Exchange name"),
+        symbol: Optional[str] = Query(default=None, description="Trading pair symbol"),
+        limit: Optional[float] = Query(default=20, description="Limit number of orders to fetch")
+    ) -> BaseDataResponse:
+    """
+    Get open orders from all exchanges.
+    Returns:
+        Dict with open orders data
+    """
+    try:
+        order_db = ServiceManager.get_order_db()
+        orders = await order_db.find_orders(
+            exchange=exchange,
+            symbol=symbol,
+            limit=limit
+        )
+        
+        return BaseDataResponse(
+            status="success",
+            data=orders
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Failed to fetch open orders: {str(e)}"
+        )
+    
+
+@app.post(f"{settings.API_PREFIX}/orders")
+async def create_order(data: OpenOrderRequest) -> BaseDataResponse | BaseResponse:
+    """
+    Open a trading position
+    
+    Parameters:
+        exchange: Exchange name (e.g. 'binance')
+        symbol: Trading pair symbol (e.g. 'BTC/USDT')
+        side: Order side ('buy' or 'sell')
+        order_type: Order type ('market' or 'limit')
+        cost: Order amount in quote currency (e.g. USDT)
+        price: Limit price (optional, required for limit orders)
+        
+    Returns:
+        BaseDataResponse with order details
+    """
+    try:
+        order_db = ServiceManager.get_order_db()
+        trading_service = ServiceManager.get_trading_service()
+        exchange = trading_service.exchanges.get(data.exchange)
+        
+        if not exchange:
+            return BaseResponse(
+                status="error",
+                message=f"Exchange {data.exchange} not found"
+            )
+
+        order = await trading_service.place_order_with_cost(
+            exchange=exchange,
+            symbol=data.symbol,
+            side=data.side,
+            order_type=data.order_type,
+            cost=data.cost,
+            price=data.price
+        )
+        
+        if order:
+            await order_db.save_order(order)
+
+        if order:
+            return BaseDataResponse(
+                status="success",
+                data=order.model_dump()
+            )
+        return BaseResponse(
+            status="error",
+            message="Failed to place order"
+        )
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to place order: {str(e)}"
+        )
+    
+
+@app.post(f"{settings.API_PREFIX}/transfer")
+async def transfer_between_exchange(data: TransferRequest) -> BaseDataResponse | BaseResponse:
+    """
+    Transfer funds between exchanges.
+    
+    Parameters:
+        from_exchange: Exchange name to transfer from (e.g. 'binance')
+        to_exchange: Exchange name to transfer to (e.g. 'kucoin')
+        currency: Currency to transfer (e.g. 'BTC')
+        amount: Amount to transfer
+        network: Network for transfer (e.g. 'TRC20')
+    
+    Returns:
+        BaseDataResponse with transfer details
+    """
+    try:
+        transfer_db = ServiceManager.get_transfer_db()
+        transfer_service = ServiceManager.get_transfer_service()
+        transaction = await transfer_service.transfer_between_exchange(
+            from_exchange_name=data.from_exchange,
+            to_exchange_name=data.to_exchange,
+            currency=data.currency,
+            amount=data.amount,
+            network=data.network
+        )
+        if transaction:
+            await transfer_db.save_transaction(transaction)
+            return BaseDataResponse(
+                status="success",
+                data=transaction.model_dump()
+            )
+        else:
+            return BaseResponse(
+                status="error",
+                message="Failed to transfer funds"
+            )
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to transfer funds: {str(e)}"
+        )
+
 @app.get(f"{settings.API_PREFIX}/deposits/networks")
 async def get_deposit_networks(exchange: str, symbol: str) -> BaseDataResponse | BaseResponse:
     """
@@ -345,17 +475,17 @@ async def get_deposit_networks(exchange: str, symbol: str) -> BaseDataResponse |
     """
     try:
         transfer_service = ServiceManager.get_transfer_service()
-        _exchange = transfer_service.exchanges.get(exchange, None)
-        if _exchange is not None:
-            networks = await transfer_service.get_deposit_networks(_exchange, symbol)
+        networks = await transfer_service.get_deposit_networks(exchange, symbol)
+        if networks:
             return BaseDataResponse(
                 status="success",
                 data=networks
             )
-        return BaseResponse(
-            status="error",
-            message="Exchange not found"
-        )
+        else:
+            return BaseResponse(
+                status="error",
+                message="Exchange not found"
+            )
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Failed to get deposit networks: {str(e)}"
@@ -528,10 +658,21 @@ async def get_symbols(
                 })
         
         try:
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            root_dir = os.path.dirname(os.path.dirname(current_dir))
-            services_dir = os.path.join(root_dir, "CryptoAssetsManager")
-            file_path = os.path.join(services_dir, "symbol_exchange_mapping.json")
+            possible_paths = [
+                os.path.join(os.path.dirname(os.path.abspath(__file__)), "symbol_exchange_mapping.json"),
+                os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 
+                            "CryptoAssetsManager", 
+                            "symbol_exchange_mapping.json"),
+                os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
+                            "symbol_exchange_mapping.json")
+            ]
+
+            file_path = None
+            for path in possible_paths:
+                if os.path.exists(path):
+                    file_path = path
+                    break
+
             with open(file_path, "r") as f:
                 mapping_data = json.load(f)
                 

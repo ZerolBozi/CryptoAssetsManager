@@ -1,8 +1,9 @@
-from decimal import Decimal, ROUND_HALF_UP
 from typing import Dict, List
+from decimal import Decimal, ROUND_HALF_UP
 
 import ccxt.async_support as ccxt
 
+from app.structures.order_structure import Order
 from app.services.exchange.base_exchange import BaseExchange
 from app.services.exchange.quote_service import QuoteService
 
@@ -20,7 +21,7 @@ class TradingService(BaseExchange):
         order_type: str,
         amount: float,
         price: float = None,
-    ) -> Dict:
+    ) -> Order:
         """
         Place an order on an exchange.
 
@@ -33,7 +34,8 @@ class TradingService(BaseExchange):
             price: Order price (required for limit order)
 
         Returns:
-            Dict: Order response from exchange
+            Order: Order response from exchange
+            # ccxt order structure
             {
                 'id':                '12345-67890:09876/54321', // string
                 'clientOrderId':     'abcdef-ghijklmnop-qrstuvwxyz', // a user-defined clientOrderId, if any
@@ -59,6 +61,25 @@ class TradingService(BaseExchange):
                 },
                 'info': { ... },              // the original unparsed order structure as is
             }
+
+            # this project's order structure
+            {
+                exchange: 'binance', // str
+                order_id: '12345-67890:09876/54321', // str
+                timestamp: 1502962946216, // int
+                status: 'open', // str
+                symbol: 'ETH/BTC', // str
+                order_type: 'limit', // str
+                side: 'buy', // str
+                price: 0.06917684, // float
+                avg_price: 0.06917684, // float
+                amount: 1.5, // float
+                filled: 1.1, // float
+                remaining: 0.4, // float
+                cost: 0.076094524, // float
+                fee_currency: 'BTC', // str
+                fee_cost: 0.0009, // float
+            }
         """
         try:
             if side not in ["buy", "sell"]:
@@ -81,7 +102,8 @@ class TradingService(BaseExchange):
                 order_params["price"] = price
 
             response = await exchange.create_order(**order_params)
-            return response
+            order = Order.from_response(response)
+            return order
 
         except Exception as e:
             raise Exception(f"Failed to place order: {str(e)}")
@@ -94,7 +116,7 @@ class TradingService(BaseExchange):
         order_type: str,
         cost: float,
         price: float = None,
-    ) -> Dict:
+    ) -> Order:
         """
         Place an order on an exchange with cost.
 
@@ -107,7 +129,7 @@ class TradingService(BaseExchange):
             price: Order price (required for limit order)
 
         Returns:
-            Dict: Order response from exchange
+            Order: Order response from exchange
         """
         try:
             if price is None:
