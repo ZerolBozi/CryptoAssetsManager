@@ -437,7 +437,7 @@ async def transfer_between_exchange(data: TransferRequest) -> BaseDataResponse |
         BaseDataResponse with transfer details
     """
     try:
-        transfer_db = ServiceManager.get_transfer_db()
+        transaction_db = ServiceManager.get_transaction_db()
         transfer_service = ServiceManager.get_transfer_service()
         transaction = await transfer_service.transfer_between_exchange(
             from_exchange_name=data.from_exchange,
@@ -447,7 +447,7 @@ async def transfer_between_exchange(data: TransferRequest) -> BaseDataResponse |
             network=data.network
         )
         if transaction:
-            await transfer_db.save_transaction(transaction)
+            await transaction_db.save_transaction(transaction)
             return BaseDataResponse(
                 status="success",
                 data=transaction.model_dump()

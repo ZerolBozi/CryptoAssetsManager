@@ -5,9 +5,9 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from app.database.base import MongoDBBase
 from app.structures.transfer_structure import Transaction
 
-class TransferDB(MongoDBBase):
+class TransactionDB(MongoDBBase):
     def __init__(self, mongo_client: AsyncIOMotorClient):
-        super().__init__(mongo_client, "transfers")
+        super().__init__(mongo_client, "transactions")
         self.add_index([("from_exchange", 1), ("to_exchange", 1), ("currency", 1)])
         self.add_index([("timestamp", -1)])
         self.add_index([("from_exchange", 1), ("transaction_id", 1)], unique=True)

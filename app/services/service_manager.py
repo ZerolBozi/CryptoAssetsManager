@@ -3,7 +3,7 @@ from typing import Optional
 from app.database.connection import MongoDB
 from app.database.asset import AssetDB
 from app.database.order import OrderDB
-from app.database.transaction import TransferDB
+from app.database.transaction import TransactionDB
 from app.database.asset_cost import AssetCostDB
 from app.database.asset_history import AssetHistoryDB
 from app.database.chart_storage import ChartStorageDB
@@ -20,7 +20,7 @@ class ServiceManager:
     # database services
     _asset_db: Optional[AssetDB] = None
     _order_db: Optional[OrderDB] = None
-    _transfer_db: Optional[TransferDB] = None
+    _transaction_db: Optional[TransactionDB] = None
     _asset_cost_db: Optional[AssetCostDB] = None
     _asset_history_db: Optional[AssetHistoryDB] = None
     _chart_storage_db: Optional[ChartStorageDB] = None
@@ -53,11 +53,11 @@ class ServiceManager:
         return cls._order_db
     
     @classmethod
-    def get_transfer_db(cls) -> TransferDB:
-        if cls._transfer_db is None:
+    def get_transaction_db(cls) -> TransactionDB:
+        if cls._transaction_db is None:
             mongo_client = MongoDB.get_client()
-            cls._transfer_db = TransferDB(mongo_client)
-        return cls._transfer_db
+            cls._transaction_db = TransactionDB(mongo_client)
+        return cls._transaction_db
     
     @classmethod
     def get_asset_cost_db(cls) -> AssetCostDB:
@@ -144,7 +144,7 @@ class ServiceManager:
             # Initialize Database Services
             asset_db = cls.get_asset_db()
             order_db = cls.get_order_db()
-            transfer_db = cls.get_transfer_db()
+            transaction_db = cls.get_transaction_db()
             asset_history_db = cls.get_asset_history_db()
             asset_cost_db = cls.get_asset_cost_db()
             chart_storage_db = cls.get_chart_storage_db()
@@ -152,7 +152,7 @@ class ServiceManager:
             # Initialize database indexes
             await asset_db.create_indexes()
             await order_db.create_indexes()
-            await transfer_db.create_indexes()
+            await transaction_db.create_indexes()
             await asset_history_db.create_indexes()
             await asset_cost_db.create_indexes()
             await chart_storage_db.create_indexes()
