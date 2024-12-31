@@ -21,7 +21,7 @@ class TradingService(BaseExchange):
         order_type: str,
         amount: float,
         price: float = None,
-    ) -> Order:
+    ) -> Order | str:
         """
         Place an order on an exchange.
 
@@ -102,11 +102,11 @@ class TradingService(BaseExchange):
                 order_params["price"] = price
 
             response = await exchange.create_order(**order_params)
-            order = Order.from_response(response)
+            order = Order.from_response(exchange.id, response)
             return order
 
         except Exception as e:
-            raise Exception(f"Failed to place order: {str(e)}")
+            return str(e)
 
     async def place_order_with_cost(
         self,
@@ -116,7 +116,7 @@ class TradingService(BaseExchange):
         order_type: str,
         cost: float,
         price: float = None,
-    ) -> Order:
+    ) -> Order | str:
         """
         Place an order on an exchange with cost.
 
@@ -155,8 +155,32 @@ class TradingService(BaseExchange):
             )
 
         except Exception as e:
-            print(e)
-            return {}
+            return str(e)
+        
+    async def cancel_order(
+        self,
+        exchange: ccxt.Exchange,
+        symbol: str,
+        order_id: str
+    ) -> Order | str:
+        """
+        Cancel an order on an exchange.
+
+        Args:
+            exchange: ccxt Exchange instance
+            symbol: Trading pair symbol (e.g. 'BTC/USDT')
+            order_id: Order ID
+
+        Returns:
+            Dict: Cancel response from exchange
+        """
+        try:
+            response = await exchange.cancel_order(order_id, symbol)
+            order = Order.from_response(exchange.id, response)
+            return order
+
+        except Exception as e:
+            return str(e)
 
     async def get_trade_history(
         self, exchange: ccxt.Exchange, symbol: str

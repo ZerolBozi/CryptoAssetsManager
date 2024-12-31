@@ -31,13 +31,14 @@ class OrderDB(MongoDBBase):
             }
         )
     
-    async def get_order(self, order_id: str) -> Optional[Dict]:
+    async def get_order_by_id(self, order_id: str) -> Optional[Dict]:
         return await self.find_one({"order_id": order_id})
     
     async def find_orders(
         self, 
         exchange: Optional[str] = None,
         symbol: Optional[str] = None,
+        status: Optional[str] = None,
         limit: int = 100
     ) -> List[Dict]:
         query = {}
@@ -45,9 +46,18 @@ class OrderDB(MongoDBBase):
             query["exchange"] = exchange
         if symbol:
             query["symbol"] = symbol
+        if status:
+            query["status"] = status
 
-        return await self.find_many(
+        cursor = await self.find_many(
             query=query,
             sort=[("timestamp", -1)],
             limit=limit
         )
+
+        orders = []
+        for doc in cursor:
+            doc["_id"] = str(doc["_id"])
+            orders.append(doc)
+
+        return orders

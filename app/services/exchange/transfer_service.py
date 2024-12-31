@@ -22,6 +22,57 @@ class TransferService(BaseExchange):
             ccxt.Exchange: Exchange instance
         """
         return self.exchanges.get(exchange_name, None)
+    
+    async def get_common_networks(self, from_exchange: str, to_exchange: str, currency: str) -> Dict:
+        """
+        Returns:
+            Dict: Common networks between exchanges
+            {
+                "VET": {
+                    "binance": {
+                        "withdraw": {
+                        "fee": 3,
+                        "percentage": null
+                        },
+                        "deposit": {
+                        "fee": null,
+                        "percentage": null
+                        }
+                    },
+                    "mexc": {
+                        "withdraw": {
+                        "fee": 30,
+                        "percentage": null
+                        },
+                        "deposit": {
+                        "fee": null,
+                        "percentage": null
+                        }
+                    }
+                }
+            }
+        """
+        try:
+            source_networks = await self.get_deposit_networks(from_exchange, currency)
+            destination_networks = await self.get_deposit_networks(to_exchange, currency)
+
+            if (not source_networks) or (not destination_networks):
+                return {}
+
+            common_networks = {}
+
+            for network in source_networks:
+                if network in destination_networks:
+                    common_networks[network] = {
+                        from_exchange: source_networks[network],
+                        to_exchange: destination_networks[network]
+                    }
+
+            return common_networks
+        
+        except Exception as e:
+            print(e)
+            return {}
 
     async def get_deposit_networks(self, exchange_name: str, currency: str) -> Dict:
         """
@@ -62,6 +113,10 @@ class TransferService(BaseExchange):
                 raise ValueError(f"Exchange {exchange_name} not found")
             
             data: dict = await exchange.fetch_deposit_withdraw_fee(currency)
+
+            if data is None:
+                return {}
+
             networks = data.get("networks", "")
             if exchange.id == "mexc":
                 networks = {

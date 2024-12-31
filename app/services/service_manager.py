@@ -170,6 +170,9 @@ class ServiceManager:
             quote_service = cls.get_quote_service()
             await quote_service.initialize_exchanges_by_server()
 
+            trading_service = cls.get_trading_service()
+            await trading_service.initialize_exchanges_by_server()
+
             print("Services initialized successfully")
 
         except Exception as e:

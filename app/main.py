@@ -150,6 +150,26 @@ async def initialize_exchanges() -> BaseResponse:
         )
 
 
+@app.get(f"{settings.API_PREFIX}/exchanges/list")
+async def list_exchanges() -> BaseDataResponse:
+    """
+    List all available exchanges.
+    Returns:
+        Dict with exchange names and status
+    """
+    try:
+        base_exchange = ServiceManager.get_base_exchange()
+        exchanges = base_exchange.exchanges.keys()
+        return BaseDataResponse(
+            status="success",
+            data=exchanges
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to list exchanges: {str(e)}"
+        )
+
+
 @app.get(f"{settings.API_PREFIX}/exchanges/status")
 async def ping_exchanges() -> BaseDataResponse:
     """
@@ -339,7 +359,8 @@ async def get_usdt_twd_rate() -> BaseDataResponse:
 async def get_orders(
         exchange: Optional[str] = Query(default=None, description="Exchange name"),
         symbol: Optional[str] = Query(default=None, description="Trading pair symbol"),
-        limit: Optional[float] = Query(default=20, description="Limit number of orders to fetch")
+        status: Optional[str] = Query(default=None, description="Order status"),
+        limit: Optional[int] = Query(default=20, description="Limit number of orders to fetch")
     ) -> BaseDataResponse:
     """
     Get open orders from all exchanges.
@@ -351,6 +372,7 @@ async def get_orders(
         orders = await order_db.find_orders(
             exchange=exchange,
             symbol=symbol,
+            status=status,
             limit=limit
         )
         
@@ -401,8 +423,13 @@ async def create_order(data: OpenOrderRequest) -> BaseDataResponse | BaseRespons
             price=data.price
         )
         
-        if order:
-            await order_db.save_order(order)
+        if isinstance(order, str):
+            return BaseResponse(
+                status="error",
+                message=order
+            )
+            
+        await order_db.save_order(order)
 
         if order:
             return BaseDataResponse(
@@ -418,6 +445,56 @@ async def create_order(data: OpenOrderRequest) -> BaseDataResponse | BaseRespons
         raise HTTPException(
             status_code=500,
             detail=f"Failed to place order: {str(e)}"
+        )
+    
+@app.post(f"{settings.API_PREFIX}/orders/cancel")
+async def cancel_order(order_id: str) -> BaseResponse:
+    """
+    Cancel an open order
+    
+    Parameters:
+        order_id: Order ID
+    
+    Returns:
+        BaseResponse with status and message
+    """
+    try:
+        order_db = ServiceManager.get_order_db()
+        trading_service = ServiceManager.get_trading_service()
+        order = await order_db.get_order_by_id(order_id)
+        
+        if not order:
+            return BaseResponse(
+                status="error",
+                message="Order not found"
+            )
+        
+        exchange = trading_service.exchanges.get(order.get('exchange', ''))
+        symbol = order.get('symbol', '')
+        
+        if (not exchange) or (not symbol):
+            return BaseResponse(
+                status="error",
+                message=f"Exchange or symbol not found"
+            )
+        
+        new_order = await trading_service.cancel_order(exchange, symbol, order_id)
+        success = await order_db.update_order(order_id, new_order)
+        
+        if success:
+            return BaseResponse(
+                status="success",
+                message="Order cancelled successfully"
+            )
+        
+        return BaseResponse(
+            status="error",
+            message="Failed to cancel order"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to cancel order: {str(e)}"
         )
     
 
@@ -463,6 +540,41 @@ async def transfer_between_exchange(data: TransferRequest) -> BaseDataResponse |
             status_code=500, detail=f"Failed to transfer funds: {str(e)}"
         )
 
+@app.get(f"{settings.API_PREFIX}/networks/common")
+async def get_common_networks(
+    from_exchange: str = Query(..., description="Source exchange"),
+    to_exchange: str = Query(..., description="Destination exchange"),
+    currency: str = Query(..., description="Currency symbol"),
+) -> BaseDataResponse:
+    """
+    Get common networks between two exchanges for a specific symbol.
+    
+    Parameters:
+        from_exchange: Source exchange name (e.g. 'binance')
+        to_exchange: Destination exchange name (e.g. 'kucoin')
+        symbol: Currency symbol (e.g. 'BTC')
+        
+    Returns:
+        List of common networks supported by both exchanges
+    """
+    try:
+        transfer_service = ServiceManager.get_transfer_service()
+        networks = await transfer_service.get_common_networks(
+            from_exchange, 
+            to_exchange, 
+            currency
+        )
+        
+        return BaseDataResponse(
+            status="success",
+            data=networks
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get common networks: {str(e)}"
+        )
+
 @app.get(f"{settings.API_PREFIX}/deposits/networks")
 async def get_deposit_networks(exchange: str, symbol: str) -> BaseDataResponse | BaseResponse:
     """
@@ -484,7 +596,7 @@ async def get_deposit_networks(exchange: str, symbol: str) -> BaseDataResponse |
         else:
             return BaseResponse(
                 status="error",
-                message="Exchange not found"
+                message="Exchange not found or Symbol not supported"
             )
     except Exception as e:
         raise HTTPException(
