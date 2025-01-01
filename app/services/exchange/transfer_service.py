@@ -31,22 +31,22 @@ class TransferService(BaseExchange):
                 "VET": {
                     "binance": {
                         "withdraw": {
-                        "fee": 3,
-                        "percentage": null
+                            "fee": 3,
+                            "percentage": null
                         },
                         "deposit": {
-                        "fee": null,
-                        "percentage": null
+                            "fee": null,
+                            "percentage": null
                         }
                     },
                     "mexc": {
                         "withdraw": {
-                        "fee": 30,
-                        "percentage": null
+                            "fee": 30,
+                            "percentage": null
                         },
                         "deposit": {
-                        "fee": null,
-                        "percentage": null
+                            "fee": null,
+                            "percentage": null
                         }
                     }
                 }

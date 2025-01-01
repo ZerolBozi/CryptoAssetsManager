@@ -133,7 +133,7 @@ class TradingService(BaseExchange):
         """
         try:
             if price is None:
-                current_price = await self.quote_service.get_current_price(
+                current_price = await self.quote_service.get_current_price_decimal(
                     exchange, symbol
                 )
                 if not current_price:

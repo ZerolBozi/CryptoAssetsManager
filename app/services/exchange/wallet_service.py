@@ -63,7 +63,7 @@ class WalletService(BaseExchange):
                 )
                 
                 if timestamp is None:
-                    current_price = await self.quote_service.get_current_price(exchange, _symbol)
+                    current_price = await self.quote_service.get_current_price_decimal(exchange, _symbol)
                 else:
                     current_price = await self.quote_service.get_last_close_price_from_history(
                         exchange, _symbol, "1d", timestamp, timestamp

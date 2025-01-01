@@ -136,8 +136,27 @@ class QuoteService(BaseExchange):
         except Exception as e:
             print(e)
             return Decimal(0)
+        
+    async def get_current_price(self, exchange: ccxt.Exchange, symbol: str) -> dict:
+        """
+        Get the current price for a symbol from an exchange.
 
-    async def get_current_price(self, exchange: ccxt.Exchange, symbol: str) -> Decimal:
+        Args:
+            exchange: ccxt Exchange instance
+            symbol: Trading pair symbol (e.g. 'BTC/USDT')
+
+        Returns:
+            Dict: Current price
+        """
+        try:
+            ticker = await exchange.fetch_ticker(symbol)
+            price = ticker.get("last", Decimal(0))
+            return {"price": price}
+        except Exception as e:
+            print(e)
+            return {}
+
+    async def get_current_price_decimal(self, exchange: ccxt.Exchange, symbol: str) -> Decimal:
         """
         Get the current price for a symbol from an exchange.
 
@@ -156,7 +175,7 @@ class QuoteService(BaseExchange):
             print(e)
             return Decimal(0)
 
-    async def get_current_prices(
+    async def get_current_prices_decimal(
         self, exchange: ccxt.Exchange, symbols: List[str]
     ) -> Dict[str, Decimal]:
         """

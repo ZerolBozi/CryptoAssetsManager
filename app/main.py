@@ -860,6 +860,33 @@ async def get_quote_history(
             status_code=500, detail=f"Failed to get quote history: {str(e)}"
         )
 
+@app.get(f"{settings.API_PREFIX}/quotes/latest")
+async def get_latest_quote(
+    symbol: str = Query(..., description="Trading pair symbol"),
+    exchange: str = Query(..., description="Exchange name")
+) -> BaseDataResponse:
+    """
+    Get latest price data for a symbol from an exchange.
+    Parameters:
+        symbol: Trading pair symbol (e.g. 'BTC/USDT')
+        exchange: Exchange name (e.g. 'binance')
+    Returns:
+        Dict with latest price data
+    """
+    try:
+        quote_service = ServiceManager.get_quote_service()
+        exchange = quote_service.exchanges.get(exchange)
+        latest = await quote_service.get_current_price(exchange, symbol)
+
+        return BaseDataResponse(
+            status="success",
+            data=latest
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get latest quote: {str(e)}"
+        )
+
 @app.websocket("/ws/quotes/{data_type}/{exchange}/{symbol}")
 async def websocket_endpoint(
     websocket: WebSocket,
