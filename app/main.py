@@ -107,13 +107,22 @@ async def update_exchange_settings(data: ExchangeSettingsUpdate) -> BaseResponse
         apis = {
             exchange: {
                 "apiKey": settings.api_key,
-                "secret": settings.secret
+                "secret": settings.secret,
+                "password": settings.get("password")
             } for exchange, settings in data.exchanges.items()
+            if settings.get("api_key") and settings.get("secret")
         }
 
         await base_exchange.initialize_exchanges(apis)
+
         results = await base_exchange.ping_exchanges()
 
+        if results:
+            return BaseResponse(
+                status="success",
+                message="API keys set successfully"
+            )
+        
         failed_exchanges = [name for name, result in results.items() if not result]
 
         if failed_exchanges:
@@ -121,11 +130,12 @@ async def update_exchange_settings(data: ExchangeSettingsUpdate) -> BaseResponse
                 status="error",
                 message=f"Failed to connect to exchanges: {', '.join(failed_exchanges)}"
             )
-
-        return BaseResponse(
-            status="success",
-            message="API keys set successfully"
-        )
+        else:
+            return BaseResponse(
+                status="error",
+                message="Failed to connect to any exchanges"
+            )
+        
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to set API keys: {str(e)}")
 

@@ -1,4 +1,6 @@
+import re
 import asyncio
+from dataclasses import dataclass
 from typing import Dict, Optional, Union
 
 import ccxt.async_support as ccxt
@@ -6,125 +8,123 @@ import ccxt.async_support as ccxt
 from app.config import settings
 
 
+@dataclass
+class ExchangeCredentials:
+    api_key: str
+    secret: str
+    password: Optional[str] = None
+    
+    def to_dict(self) -> dict:
+        creds = {
+            "apiKey": self.api_key,
+            "secret": self.secret
+        }
+        if self.password:
+            creds["password"] = self.password
+        return creds
+    
+class ExchangeRegistry:
+    def __init__(self):
+        self._available_exchanges = self.__get_ccxt_exchanges()
+        
+    def __get_ccxt_exchanges(self) -> Dict[str, type]:
+        return {
+            name: getattr(ccxt, name)
+            for name in dir(ccxt)
+            if (
+                isinstance(getattr(ccxt, name), type) 
+                and issubclass(getattr(ccxt, name), ccxt.Exchange)
+                and name != 'Exchange'
+            )
+        }
+    
+    def __detect_exchanges_from_settings(self) -> Dict[str, ExchangeCredentials]:
+        exchanges = {}
+        settings_dict = settings.model_dump()
+        
+        exchange_settings = {}
+        for key, value in settings_dict.items():
+            match = re.match(r'([A-Z]+)_(API_KEY|SECRET|PASSWORD)$', key)
+            if match and value:
+                exchange_name = match.group(1).lower()
+                setting_type = match.group(2)
+                
+                if exchange_name not in exchange_settings:
+                    exchange_settings[exchange_name] = {}
+                exchange_settings[exchange_name][setting_type] = value
+        
+        for exchange_name, config in exchange_settings.items():
+            if 'API_KEY' in config and 'SECRET' in config:
+                exchanges[exchange_name] = ExchangeCredentials(
+                    api_key=config['API_KEY'],
+                    secret=config['SECRET'],
+                    password=config.get('PASSWORD')
+                )
+        
+        return exchanges
+
+    def create_exchange_instance(self, exchange_name: str, credentials: ExchangeCredentials) -> Optional[ccxt.Exchange]:
+        try:
+            exchange_class = None
+            if hasattr(ccxt, exchange_name):
+                exchange_class = getattr(ccxt, exchange_name)
+                
+            if not exchange_class:
+                print(f"Exchange {exchange_name} not found in CCXT")
+                return None
+
+            config = {
+                **credentials.to_dict(),
+                "enableRateLimit": settings.ENABLE_RATE_LIMIT,
+                "timeout": settings.API_CONNECT_TIMEOUT
+            }
+            return exchange_class(config)
+            
+        except Exception as e:
+            print(f"Error creating {exchange_name} instance: {str(e)}")
+            return None
+
+    def create_exchange_instances(self) -> Dict[str, ccxt.Exchange]:
+        exchanges = {}
+        detected_exchanges = self.__detect_exchanges_from_settings()
+        
+        for exchange_name, credentials in detected_exchanges.items():
+            exchange = self.create_exchange_instance(exchange_name, credentials)
+            if exchange:
+                exchanges[exchange_name] = exchange
+        
+        return exchanges
+
 class BaseExchange:
     def __init__(self) -> None:
         self.exchanges: Dict[str, ccxt.Exchange] = {}
-
-    async def initialize_exchanges(self, apis: Dict[str, Dict[str, str]]) -> None:
-        """
-        apis: Dict[str, Dict[str, str]]
-        {
-            "exchanges": {
-                "binance": {
-                    "api_key": "your_api_key",
-                    "secret": "your_secret"
-                },
-                "okx": {
-                    "api_key": "your_api_key",
-                    "secret": "your_secret",
-                    "password": "your_password"
-                },
-                "mexc": {
-                    "api_key": "your_api_key",
-                    "secret": "your_secret"
-                },
-                "gateio": {
-                    "api_key": "your_api_key",
-                    "secret": "your_secret"
-                }
-            }
-        }
-        """
-        exchange_classes = {
-            "binance": ccxt.binance,
-            "okx": ccxt.okx,
-            "bybit": ccxt.bybit,
-            "bitget": ccxt.bitget,
-            "mexc": ccxt.mexc,
-            "gateio": ccxt.gateio,
-            "bitopro": ccxt.bitopro
-        }
-
-        default_config = {
-            "enableRateLimit": settings.ENABLE_RATE_LIMIT,
-            "timeout": settings.API_CONNECT_TIMEOUT,
-        }
-
-        # reset
-        self.exchanges = {}
-
-        for exchange_name, exchange_config in apis["exchanges"].items():
-            exchange_class = exchange_classes.get(exchange_name)
-            if not exchange_class:
-                continue
-
-            config = {**exchange_config, **default_config}
-            self.exchanges[exchange_name] = exchange_class(config)
+        self.registry = ExchangeRegistry()
 
     async def initialize_exchanges_by_server(self) -> None:
-        exchange_configs = {
-            "binance": (
-                ccxt.binance,
-                {
-                    "apiKey": settings.BINANCE_API_KEY,
-                    "secret": settings.BINANCE_SECRET,
-                },
-            ),
-            "okx": (
-                ccxt.okx,
-                {
-                    "apiKey": settings.OKX_API_KEY,
-                    "secret": settings.OKX_SECRET,
-                    "password": settings.OKX_PASSWORD,
-                },
-            ),
-            "bybit": (
-                ccxt.bybit,
-                {
-                    "apiKey": settings.BYBIT_API_KEY,
-                    "secret": settings.BYBIT_SECRET,
-                }
-            ),
-            "bitget": (
-                ccxt.bitget,
-                {
-                    "apiKey": settings.BITGET_API_KEY,
-                    "secret": settings.BITGET_SECRET,
-                    "password": settings.BITGET_PASSWORD,
-                }
-            ),
-            "mexc": (
-                ccxt.mexc,
-                {
-                    "apiKey": settings.MEXC_API_KEY,
-                    "secret": settings.MEXC_SECRET,
-                },
-            ),
-            "gateio": (
-                ccxt.gateio,
-                {
-                    "apiKey": settings.GATEIO_API_KEY,
-                    "secret": settings.GATEIO_SECRET,
-                },
-            ),
-            "bitopro": (
-                ccxt.bitopro,
-                {
-                    "apiKey": settings.BITOPRO_API_KEY,
-                    "secret": settings.BITOPRO_SECRET,
-                }
+        self.exchanges = self.registry.create_exchange_instances()
+
+    async def initialize_exchanges(self, apis: Dict[str, Dict[str, str]]) -> None:
+        current_exchanges = {
+            name: instance
+            for name, instance in self.exchanges.items()
+            if name not in apis.get("exchanges", {})
+        }
+
+        self.exchanges = current_exchanges
+
+        for exchange_name, config in apis.get("exchanges", {}).items():
+            if not all(config.get(key) for key in ["api_key", "secret"]):
+                continue
+                
+            credentials = ExchangeCredentials(
+                api_key=config["api_key"],
+                secret=config["secret"],
+                password=config.get("password")
             )
-        }
-
-        default_config = {
-            "enableRateLimit": settings.ENABLE_RATE_LIMIT,
-            "timeout": settings.API_CONNECT_TIMEOUT,
-        }
-
-        self.exchanges = {
-            name: exchange_class({**config, **default_config})
-            for name, (exchange_class, config) in exchange_configs.items()
-        }
+            
+            exchange = self.registry.create_exchange_instance(exchange_name, credentials)
+            if exchange:
+                self.exchanges[exchange_name] = exchange
 
     async def __ping_exchange(self, exchange: ccxt.Exchange) -> bool:
         """
