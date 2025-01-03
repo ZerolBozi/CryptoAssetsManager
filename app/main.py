@@ -17,7 +17,7 @@ from app.services.service_manager import ServiceManager
 from app.structures.response_structure import BaseResponse, BaseDataResponse
 from app.structures.request_structure import (
     AssetCostUpdate, ExchangeSettingsUpdate, ChartSaveRequest, 
-    OpenOrderRequest, TransferRequest
+    OpenOrderRequest, CancelOrderRequest, TransferRequest
 )
 # 快取週期
 CACHE_TTL = 60000
@@ -407,7 +407,8 @@ async def create_order(data: OpenOrderRequest) -> BaseDataResponse | BaseRespons
         symbol: Trading pair symbol (e.g. 'BTC/USDT')
         side: Order side ('buy' or 'sell')
         order_type: Order type ('market' or 'limit')
-        cost: Order amount in quote currency (e.g. USDT)
+        amount_type: Amount type ('currency' or 'USDT')
+        amount: Order amount in quote currency (e.g. USDT or currency)
         price: Limit price (optional, required for limit orders)
         
     Returns:
@@ -424,14 +425,24 @@ async def create_order(data: OpenOrderRequest) -> BaseDataResponse | BaseRespons
                 message=f"Exchange {data.exchange} not found"
             )
 
-        order = await trading_service.place_order_with_cost(
-            exchange=exchange,
-            symbol=data.symbol,
-            side=data.side,
-            order_type=data.order_type,
-            cost=data.cost,
-            price=data.price
-        )
+        if data.amount_type == "USDT":
+            order = await trading_service.place_order_with_cost(
+                exchange=exchange,
+                symbol=data.symbol,
+                side=data.side,
+                order_type=data.order_type,
+                cost=data.amount,
+                price=data.price
+            )
+        else:
+            order = await trading_service.place_order(
+                exchange=exchange,
+                symbol=data.symbol,
+                side=data.side,
+                order_type=data.order_type,
+                amount=data.amount,
+                price=data.price
+            )
         
         if isinstance(order, str):
             return BaseResponse(
@@ -458,7 +469,7 @@ async def create_order(data: OpenOrderRequest) -> BaseDataResponse | BaseRespons
         )
     
 @app.post(f"{settings.API_PREFIX}/orders/cancel")
-async def cancel_order(order_id: str) -> BaseResponse:
+async def cancel_order(data: CancelOrderRequest) -> BaseResponse:
     """
     Cancel an open order
     
@@ -471,7 +482,7 @@ async def cancel_order(order_id: str) -> BaseResponse:
     try:
         order_db = ServiceManager.get_order_db()
         trading_service = ServiceManager.get_trading_service()
-        order = await order_db.get_order_by_id(order_id)
+        order = await order_db.get_order_by_id(data.order_id)
         
         if not order:
             return BaseResponse(
@@ -488,8 +499,8 @@ async def cancel_order(order_id: str) -> BaseResponse:
                 message=f"Exchange or symbol not found"
             )
         
-        new_order = await trading_service.cancel_order(exchange, symbol, order_id)
-        success = await order_db.update_order(order_id, new_order)
+        new_order = await trading_service.cancel_order(exchange, symbol, data.order_id)
+        success = await order_db.update_order(data.order_id, new_order)
         
         if success:
             return BaseResponse(

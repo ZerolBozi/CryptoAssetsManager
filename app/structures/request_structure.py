@@ -25,8 +25,12 @@ class OpenOrderRequest(BaseModel):
     symbol: str
     side: str  # buy or sell
     order_type: str  # market or limit
-    cost: float  # cost in quote currency (e.g. USDT)
+    amount_type: str  # currency or USDT
+    amount: float  # cost in quote currency if amount type is USDT (e.g. USDT)
     price: Optional[float] = None  # limit price, optional for market orders
+
+class CancelOrderRequest(BaseModel):
+    order_id: str
 
 class CloseOrderRequest(BaseModel):
     exchange: str
