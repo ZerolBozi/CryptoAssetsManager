@@ -108,9 +108,9 @@ async def update_exchange_settings(data: ExchangeSettingsUpdate) -> BaseResponse
             exchange: {
                 "apiKey": settings.api_key,
                 "secret": settings.secret,
-                "password": settings.get("password")
+                "password": settings.password if hasattr(settings, 'password') else None
             } for exchange, settings in data.exchanges.items()
-            if settings.get("api_key") and settings.get("secret")
+            if settings.api_key and settings.secret
         }
 
         await base_exchange.initialize_exchanges(apis)
