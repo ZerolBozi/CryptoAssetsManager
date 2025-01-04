@@ -181,6 +181,31 @@ class TradingService(BaseExchange):
 
         except Exception as e:
             return str(e)
+        
+    async def update_order(
+        self,
+        exchange: ccxt.Exchange,
+        symbol: str,
+        order_id: str
+    ) -> Order | str:
+        """
+        Update an order on an exchange.
+
+        Args:
+            exchange: ccxt Exchange instance
+            symbol: Trading pair symbol (e.g. 'BTC/USDT')
+            order_id: Order ID
+
+        Returns:
+            Order: Order response from exchange
+        """
+        try:
+            response = await exchange.fetch_order(order_id, symbol)
+            order = Order.from_response(exchange.id, response)
+            return order
+
+        except Exception as e:
+            return str(e)
 
     async def get_trade_history(
         self, exchange: ccxt.Exchange, symbol: str

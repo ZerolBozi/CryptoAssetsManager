@@ -379,6 +379,18 @@ async def get_orders(
     """
     try:
         order_db = ServiceManager.get_order_db()
+        trading_service = ServiceManager.get_trading_service()
+
+        open_orders = await order_db.find_orders(status="open")
+
+        for order in open_orders:
+            _exchange = trading_service.exchanges.get(order.get('exchange', ''))
+            symbol = order.get('symbol', '')
+            order_id = order.get('order_id', '')
+            if _exchange and symbol and order_id:
+                new_order = await trading_service.update_order(_exchange, symbol, order_id)
+                await order_db.update_order(order_id, new_order)
+            
         orders = await order_db.find_orders(
             exchange=exchange,
             symbol=symbol,

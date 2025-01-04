@@ -1,4 +1,5 @@
 from typing import Dict, List, Optional
+from datetime import datetime, timedelta, timezone
 
 from motor.motor_asyncio import AsyncIOMotorClient
 
@@ -39,6 +40,8 @@ class OrderDB(MongoDBBase):
         exchange: Optional[str] = None,
         symbol: Optional[str] = None,
         status: Optional[str] = None,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
         limit: int = 100
     ) -> List[Dict]:
         query = {}
@@ -48,6 +51,13 @@ class OrderDB(MongoDBBase):
             query["symbol"] = symbol
         if status:
             query["status"] = status
+
+        if start_time or end_time:
+            query["timestamp"] = {}
+            if start_time:
+                query["timestamp"]["$gte"] = int(start_time.timestamp() * 1000)
+            if end_time:
+                query["timestamp"]["$lte"] = int(end_time.timestamp() * 1000)
 
         cursor = await self.find_many(
             query=query,
@@ -61,3 +71,26 @@ class OrderDB(MongoDBBase):
             orders.append(doc)
 
         return orders
+    
+    async def find_orders_by_timespan(
+        self, 
+        days: int,
+        exchange: Optional[str] = None,
+        symbol: Optional[str] = None,
+        status: Optional[str] = None,
+        end_time: Optional[datetime] = None,
+        limit: int = 100
+    ) -> List[Dict]:
+        if end_time is None:
+            end_time = datetime.now(timezone.utc)
+        
+        start_time = end_time - timedelta(days=days)
+        
+        return await self.find_orders(
+            exchange=exchange,
+            symbol=symbol,
+            status=status,
+            start_time=start_time,
+            end_time=end_time,
+            limit=limit
+        )
